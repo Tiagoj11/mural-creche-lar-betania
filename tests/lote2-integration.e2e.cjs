@@ -18,7 +18,7 @@ const { chromium } = require('playwright');
 
 const project = path.resolve(__dirname, '..');
 const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'mural-lote2-e2e-'));
-const uploads = path.join(workspace, 'upload-external');
+const uploads = fs.mkdtempSync(path.join(os.tmpdir(), 'mural-lote2-upload-ext-'));
 const secret = crypto.randomBytes(32).toString('hex');
 const date = '2026-11-11';
 const malicious = '<img src=x onerror="window.__muralXss=1">';
@@ -91,7 +91,7 @@ async function start() {
     let alive = false;
     for (let i = 0; i < 100; i++) {
         assert.ok(server.exitCode === null && server.signalCode === null,
-            'Express encerrou antes de inicializar');
+            'Express encerrou antes de inicializar (verificar MURAL_UPLOAD_DIR e dependências)');
         try {
             const response = await request('/api/turmas', { admin: true });
             if (response.status === 200) { alive = true; break; }
@@ -127,6 +127,7 @@ async function shutdown() {
         if (server.exitCode === null && server.signalCode === null) server.kill('SIGKILL');
     }
     fs.rmSync(workspace, { recursive: true, force: true });
+    fs.rmSync(uploads, { recursive: true, force: true });
 }
 function publication(form = {}) {
     return {

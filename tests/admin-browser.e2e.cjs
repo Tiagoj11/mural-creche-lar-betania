@@ -18,6 +18,7 @@ const { chromium } = require('playwright');
 
 const sourceRoot = path.resolve(__dirname, '..');
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'mural-v1-browser-'));
+const uploads = fs.mkdtempSync(path.join(os.tmpdir(), 'mural-v1-uploads-'));
 const secret = crypto.randomBytes(24).toString('hex');
 const injection = '<img src=x onerror="window.__executouXss=true">';
 let server;
@@ -61,7 +62,7 @@ async function startServer() {
     server = spawn(process.execPath, ['server.js'], {
         cwd: temp,
         env: { ...process.env, PORT: new URL(base).port, ADMIN_SECRET_KEY: secret,
-            NODE_ENV: 'test' },
+            NODE_ENV: 'test', MURAL_UPLOAD_DIR: uploads },
         stdio: ['ignore', 'pipe', 'pipe']
     });
     server.stdout.on('data', chunk => { processOutput += chunk.toString().slice(0, 1000); });
@@ -116,6 +117,7 @@ async function cleanup() {
         if (server.exitCode === null && server.signalCode === null) server.kill('SIGKILL');
     }
     fs.rmSync(temp, { recursive: true, force: true });
+    fs.rmSync(uploads, { recursive: true, force: true });
 }
 
 test('V1: painel real em Chromium com Express e SQLite temporários', { timeout: 90000 }, async t => {
@@ -187,7 +189,13 @@ test('V1: painel real em Chromium com Express e SQLite temporários', { timeout:
             assert.equal(await row('Evento para todos').count(), 1);
             assert.match(await row('Evento para todos').innerText(), /Geral/);
             assert.match(await row('Aviso turma Beta').innerText(), /Turma Beta/);
-            assert.equal(await row('Evento para todos').getByRole('button', { name: 'Editar' }).isDisabled(), true);
+            const editarGeral = row('Evento para todos').getByRole('button', { name: 'Editar' });
+            // Lote 1: edição geral desabilitada; Lote 2: CRUD geral habilitado.
+            if (await $('#publicacao-geral').count()) {
+                assert.equal(await editarGeral.isEnabled(), true);
+            } else {
+                assert.equal(await editarGeral.isDisabled(), true);
+            }
         });
 
         await t.test('texto vindo do SQLite não executa HTML/JS', async () => {
@@ -218,12 +226,18 @@ test('V1: painel real em Chromium com Express e SQLite temporários', { timeout:
             await page.getByTitle('Cadastrar nova turma').click();
             await $('#nova-turma-nome').fill('Turma Nova');
             await $('#nova-turma-senha').fill(secret);
-            const duplicateDialog = page.waitForEvent('dialog', {
-                predicate: dialog => /já existe/.test(dialog.message())
-            });
+            const duplicateResponse = page.waitForResponse(response =>
+                response.url() === base + '/api/turmas' &&
+                response.request().method() === 'POST' && response.status() === 400);
             await page.getByRole('button', { name: 'Cadastrar', exact: true }).click();
-            await duplicateDialog;
-            assert.ok(dialogs.some(d => d.category === 'duplicada'));
+            await duplicateResponse;
+            if (await $('#notificacao-mensagem').count()) {
+                await page.waitForFunction(() =>
+                    document.querySelector('#notificacao-mensagem')?.textContent.includes('já existe'));
+                assert.match(await $('#notificacao-mensagem').innerText(), /já existe/);
+            } else {
+                assert.ok(dialogs.some(d => d.category === 'duplicada'));
+            }
             assert.equal(await $('#turma_id option').count(), 4);
             await page.getByRole('button', { name: 'Cancelar' }).click();
         });
