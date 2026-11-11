@@ -82,7 +82,7 @@ const upload = multer({
  * GET /api/turmas
  * Retorna a lista de todas as turmas cadastradas (para popular o select dinâmico no admin).
  */
-app.get('/api/turmas', (req, res) => {
+app.get('/api/turmas', autenticarAdmin, (req, res) => {
     const sql = `SELECT id, nome_turma, codigo_acesso FROM Turmas ORDER BY nome_turma ASC`;
     db.all(sql, [], (err, rows) => {
         if (err) {
@@ -120,6 +120,28 @@ app.post('/api/turmas', autenticarAdmin, (req, res) => {
     });
 });
  
+/**
+ * GET /api/admin/publicacoes
+ * Retorna todas as publicações para gerenciamento, sem expor códigos de acesso.
+ */
+app.get('/api/admin/publicacoes', autenticarAdmin, (req, res) => {
+    const sql = `
+        SELECT p.id, p.titulo, p.descricao, p.data, p.tipo,
+               p.imagem_url, p.turma_id, t.nome_turma
+        FROM Publicacoes p
+        LEFT JOIN Turmas t ON p.turma_id = t.id
+        ORDER BY p.id DESC
+    `;
+
+    db.all(sql, [], (err, rows) => {
+        if (err) {
+            console.error('Erro ao buscar publicações administrativas:', err.message);
+            return res.status(500).json({ erro: 'Erro ao buscar publicações no banco de dados.' });
+        }
+        res.json(rows);
+    });
+});
+
 /**
  * GET /api/publicacoes/token/:codigo
  * Valida o token/hash da turma e retorna as publicações daquela turma + avisos "Geral".
