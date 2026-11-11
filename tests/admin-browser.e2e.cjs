@@ -218,13 +218,11 @@ test('V1: painel real em Chromium com Express e SQLite temporários', { timeout:
             await page.getByTitle('Cadastrar nova turma').click();
             await $('#nova-turma-nome').fill('Turma Nova');
             await $('#nova-turma-senha').fill(secret);
+            const duplicateDialog = page.waitForEvent('dialog', {
+                predicate: dialog => /já existe/.test(dialog.message())
+            });
             await page.getByRole('button', { name: 'Cadastrar', exact: true }).click();
-            await page.waitForFunction(() =>
-                document.querySelector('#modal-turma')?.classList.contains('hidden') === false);
-            await page.waitForFunction(() => document.querySelector('#modal-turma')
-                && document.querySelector('#nova-turma-nome').value === 'Turma Nova');
-            // A submissão é assíncrona: aguardar o retorno 400 antes do alerta.
-            await page.waitForTimeout(150);
+            await duplicateDialog;
             assert.ok(dialogs.some(d => d.category === 'duplicada'));
             assert.equal(await $('#turma_id option').count(), 4);
             await page.getByRole('button', { name: 'Cancelar' }).click();
