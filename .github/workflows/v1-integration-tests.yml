@@ -4,17 +4,10 @@ on:
   push:
     branches:
       - V1
-      - feature/v1-ci-integracao
   pull_request:
     branches:
       - V1
   workflow_dispatch:
-    inputs:
-      run_lote2:
-        description: 'Executar E2E do Lote 2 somente em revisão combinada Backend + Frontend'
-        type: boolean
-        required: false
-        default: false
 
 permissions:
   contents: read
@@ -64,10 +57,8 @@ jobs:
       - name: Exercitar painel real com Express e SQLite descartáveis
         run: node --test tests/admin-browser.e2e.cjs
 
-      # A V1 base ainda não contém a funcionalidade Lote 2.
-      # Executar opt-in apenas em revisão contendo Backend e Frontend novos.
-      - name: Aceite Lote 2 em checkout combinado (opt-in)
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_lote2 == true }}
+      # Obrigatório em push para V1 e PR destinado a V1. Preservar os testes anteriores.
+      - name: Aceite Lote 2 - API SQLite Chromium imagens e notificações
         run: node --test tests/lote2-integration.e2e.cjs
 
       - name: Verificar ausência de banco temporário no workspace
