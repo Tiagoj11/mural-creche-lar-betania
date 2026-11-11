@@ -1,0 +1,32 @@
+name: Backend Lote 1 - testes HTTP
+
+on:
+  push:
+    branches:
+      - feature/backend-mvp-lote1
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  api:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout do PR
+        uses: actions/checkout@v4
+      - name: Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Instalar dependencias do package-lock
+        run: npm ci --no-audit --no-fund
+      - name: Verificar sintaxe
+        run: |
+          node --check server.js
+          node --check tests/admin-listagens.test.js
+          node --check tests/admin-http.integration.test.js
+      - name: Testes de unidade e HTTP/SQLite descartavel
+        run: npm test
