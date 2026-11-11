@@ -9,6 +9,12 @@ on:
     branches:
       - V1
   workflow_dispatch:
+    inputs:
+      run_lote2:
+        description: 'Executar E2E do Lote 2 somente em revisão combinada Backend + Frontend'
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -42,6 +48,7 @@ jobs:
           node --check tests/admin-listagens.test.js
           node --check tests/admin-http.integration.test.js
           node --check tests/admin-browser.e2e.cjs
+          node --check tests/lote2-integration.e2e.cjs
 
       - name: Executar testes existentes (HTTP real e SQLite descartável)
         run: npm test
@@ -56,6 +63,12 @@ jobs:
 
       - name: Exercitar painel real com Express e SQLite descartáveis
         run: node --test tests/admin-browser.e2e.cjs
+
+      # A V1 base ainda não contém a funcionalidade Lote 2.
+      # Executar opt-in apenas em revisão contendo Backend e Frontend novos.
+      - name: Aceite Lote 2 em checkout combinado (opt-in)
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_lote2 == true }}
+        run: node --test tests/lote2-integration.e2e.cjs
 
       - name: Verificar ausência de banco temporário no workspace
         if: always()
