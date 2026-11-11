@@ -1,0 +1,68 @@
+name: V1 - integração API e painel administrativo
+
+on:
+  push:
+    branches:
+      - V1
+      - feature/v1-ci-integracao
+  pull_request:
+    branches:
+      - V1
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  integracao:
+    name: Express + SQLite + Chromium
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      CI: "true"
+      NODE_ENV: test
+    steps:
+      - name: Checkout da revisão submetida
+        uses: actions/checkout@v4
+
+      - name: Preparar Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Instalar dependências versionadas
+        run: npm ci --no-audit --no-fund
+
+      - name: Verificar sintaxe dos arquivos executados
+        run: |
+          node --check server.js
+          node --check database.js
+          node --check public/app.js
+          node --check tests/admin-listagens.test.js
+          node --check tests/admin-http.integration.test.js
+          node --check tests/admin-browser.e2e.cjs
+
+      - name: Executar testes existentes (HTTP real e SQLite descartável)
+        run: npm test
+
+      # Somente no runner: não altera package.json nem package-lock.json.
+      # Playwright é necessário para testar a página real no Chromium headless.
+      - name: Instalar ferramenta de navegador isolada
+        run: npm install --no-save --package-lock=false --no-audit --no-fund playwright@1.56.1
+
+      - name: Instalar Chromium headless e dependências do runner
+        run: npx playwright install --with-deps chromium
+
+      - name: Exercitar painel real com Express e SQLite descartáveis
+        run: node --test tests/admin-browser.e2e.cjs
+
+      - name: Verificar ausência de banco temporário no workspace
+        if: always()
+        shell: bash
+        run: |
+          if [ -e banco.db ]; then
+            echo "::error::Banco SQLite encontrado na raiz do workspace de CI"
+            exit 1
+          fi
+          echo "Nenhum banco SQLite foi escrito na raiz do workspace"
