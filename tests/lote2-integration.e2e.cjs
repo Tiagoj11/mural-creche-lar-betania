@@ -292,7 +292,7 @@ test('Lote 2 - integração combinada real: API/SQLite/Chromium/uploads', { time
         });
         const page = await context.newPage();
         page.on('dialog', dialog => dialog.accept());
-        await page.route('https://cdn.tailwindcss.com/**', route => route.abort());
+        // Manter Tailwind real para testar posição e cores das notificações.
         const adminResponse = await page.goto(base + '/admin.html', {
             waitUntil: 'domcontentloaded'
         });
