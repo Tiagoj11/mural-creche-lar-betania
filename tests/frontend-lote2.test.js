@@ -254,8 +254,8 @@ test('mural mostra Geral em área própria e específica, sem executar payload H
     assert.equal(el['conteudo-turma'].children.length, 1);
     const card = el['sec-geral'].children[0];
     assert.equal(card.children.length, 1, 'URL insegura não cria imagem');
-    assert.equal(card.children[0].children[1].textContent, '');
-    assert.equal(card.children[0].children[1].children[0].textContent, unsafe);
+    assert.equal(card.children[0].children[1].textContent, unsafe);
+    assert.equal(card.children[0].children[2].textContent, '<script>alert(1)</script>');
     const turmaCard = el['conteudo-turma'].children[0];
     assert.equal(turmaCard.children[0].src, '/uploads/1234abcd.png');
 });
