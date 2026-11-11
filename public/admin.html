@@ -13,6 +13,14 @@
         </div>
     </header>
 
+    <div id="notificacao" aria-live="polite" role="status" hidden
+        class="fixed z-[100] top-4 left-1/2 -translate-x-1/2 w-[calc(100%-2rem)] max-w-md rounded-xl border shadow-lg px-4 py-3 flex items-center gap-3 text-sm">
+        <span id="notificacao-icone" class="text-lg font-bold" aria-hidden="true"></span>
+        <span id="notificacao-mensagem" class="flex-1 break-words"></span>
+        <button type="button" id="notificacao-fechar" aria-label="Fechar aviso"
+            class="text-lg leading-none font-semibold px-2 py-1 rounded hover:bg-black/10">×</button>
+    </div>
+
     <main class="max-w-4xl mx-auto p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
         <!-- Formulário de Nova/Edição Publicação -->
         <section class="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
@@ -47,11 +55,16 @@
                             <option value="Atividade">Atividade</option>
                             <option value="Evento">Evento</option>
                             <option value="Cardápio">Cardápio</option>
+                            <option value="Aviso Geral">Aviso Geral</option>
                         </select>
                     </div>
                 </div>
                 <div>
-                    <label class="block text-sm font-medium text-gray-600 mb-1">Turma</label>
+                    <label class="flex items-center gap-2 text-sm font-semibold text-gray-700 mb-2" for="publicacao-geral">
+                        <input id="publicacao-geral" name="publicacao_geral" type="checkbox" value="1"
+                            class="w-4 h-4 accent-[#b83b43]"> Publicação geral
+                    </label>
+                    <label class="block text-sm font-medium text-gray-600 mb-1" for="turma_id">Turma (se não for geral)</label>
                     <div class="flex gap-2">
                         <select id="turma_id" name="turma_id" class="w-full px-3 py-2 border rounded-xl focus:ring-2 focus:ring-[#b83b43] outline-none" required>
                             <option value="">Aguardando autenticação...</option>
@@ -62,6 +75,7 @@
                 <div>
                     <label class="block text-sm font-medium text-gray-600 mb-1">Imagem (Upload)</label>
                     <input type="file" id="imagem" name="imagem" accept="image/*" class="w-full px-3 py-2 border rounded-xl focus:ring-2 focus:ring-[#b83b43] outline-none">
+                    <p id="imagem-preservada" class="text-xs text-gray-500 mt-1"></p>
                 </div>
                 <button type="submit" id="btn-submit" class="w-full bg-[#b83b43] text-white font-bold py-2.5 rounded-xl hover:bg-[#a03037] transition shadow-md">Publicar</button>
             </form>
@@ -108,10 +122,40 @@
         const listaPublicacoes = document.getElementById('lista-publicacoes');
         const estadoAdmin = document.getElementById('estado-admin');
         const botaoCarregar = document.getElementById('btn-carregar-dados');
+        const campoGeral = document.getElementById('publicacao-geral');
+        const notificacao = document.getElementById('notificacao');
+        const textoAviso = document.getElementById('notificacao-mensagem');
+        const iconeAviso = document.getElementById('notificacao-icone');
+        let temporizadorAviso = null;
+
+        function fecharAviso() {
+            clearTimeout(temporizadorAviso);
+            notificacao.hidden = true;
+        }
+
+        function notificar(mensagem, tipo = 'erro') {
+            clearTimeout(temporizadorAviso);
+            const sucesso = tipo === 'sucesso';
+            notificacao.hidden = false;
+            notificacao.setAttribute('role', sucesso ? 'status' : 'alert');
+            notificacao.className = 'fixed z-[100] top-4 left-1/2 -translate-x-1/2 w-[calc(100%-2rem)] max-w-md rounded-xl border shadow-lg px-4 py-3 flex items-center gap-3 text-sm ' +
+                (sucesso ? 'bg-green-50 text-green-900 border-green-300' : 'bg-red-50 text-red-900 border-red-300');
+            iconeAviso.textContent = sucesso ? '✓' : '⚠';
+            textoAviso.textContent = String(mensagem);
+            temporizadorAviso = setTimeout(fecharAviso, 4500);
+        }
+
+        function sincronizarDestino() {
+            selectTurma.value = '';
+            selectTurma.disabled = campoGeral.checked;
+            selectTurma.required = !campoGeral.checked;
+        }
 
         document.addEventListener('DOMContentLoaded', () => {
             // As consultas protegidas são iniciadas apenas por ação explícita após a senha.
             botaoCarregar.addEventListener('click', carregarPainelAdministrativo);
+            campoGeral.addEventListener('change', sincronizarDestino);
+            document.getElementById('notificacao-fechar').addEventListener('click', fecharAviso);
             campoSenha.addEventListener('input', () => {
                 versaoConsulta++;
                 botaoCarregar.disabled = false;
@@ -147,6 +191,7 @@
                 if (versao !== versaoConsulta) return;
                 limparDadosAdministrativos();
                 estadoAdmin.textContent = erro.message;
+                notificar(erro.message);
             } finally {
                 if (versao === versaoConsulta) botaoCarregar.disabled = false;
             }
@@ -220,13 +265,7 @@
                 editar.type = 'button';
                 editar.className = 'flex-1 md:flex-none text-xs bg-white border border-gray-300 hover:bg-gray-50 px-3 py-1.5 rounded-lg font-medium text-gray-700 transition-colors shadow-sm';
                 editar.textContent = 'Editar';
-                if (pub.turma_id === null) {
-                    // POST/PUT de publicações gerais será tratado no Lote 2.
-                    editar.disabled = true;
-                    editar.title = 'Edição de publicação geral disponível no Lote 2.';
-                } else {
-                    editar.addEventListener('click', () => editarPublicacao(pub));
-                }
+                editar.addEventListener('click', () => editarPublicacao(pub));
                 const excluir = document.createElement('button');
                 excluir.type = 'button';
                 excluir.className = 'flex-1 md:flex-none text-xs bg-red-50 border border-red-200 hover:bg-red-100 px-3 py-1.5 rounded-lg font-medium text-red-700 transition-colors shadow-sm';
@@ -253,8 +292,8 @@
         async function salvarNovaTurma() {
             const nome_turma = document.getElementById('nova-turma-nome').value.trim();
             const senha = document.getElementById('nova-turma-senha').value || campoSenha.value;
-            if (!nome_turma) return alert('Digite o nome da turma.');
-            if (!senha.trim()) return alert('Insira a Senha Administrativa para cadastrar a turma.');
+            if (!nome_turma) return notificar('Digite o nome da turma.');
+            if (!senha.trim()) return notificar('Insira a Senha Administrativa para cadastrar a turma.');
 
             try {
                 const resposta = await fetch(API_URL + '/api/turmas', {
@@ -263,11 +302,11 @@
                     body: JSON.stringify({ nome_turma })
                 });
                 const resultado = await resposta.json();
-                if (!resposta.ok) return alert(resultado.erro || 'Erro ao cadastrar turma.');
+                if (!resposta.ok) return notificar(resultado.erro || 'Erro ao cadastrar turma.');
 
                 campoSenha.value = senha;
                 fecharModalNovaTurma();
-                alert('Turma cadastrada com sucesso!');
+                notificar('Turma cadastrada com sucesso!', 'sucesso');
                 const versao = ++versaoConsulta;
                 await carregarTurmas(resultado.id, senha, versao);
                 if (versao !== versaoConsulta) return;
@@ -275,32 +314,36 @@
                 estadoAdmin.textContent = 'Turmas e publicações carregadas.';
             } catch (erro) {
                 estadoAdmin.textContent = erro.message;
-                alert('Falha ao atualizar o painel após cadastrar turma.');
+                notificar('Falha ao atualizar o painel após cadastrar turma.');
             }
         }
 
         function copiarLinkTurma() {
             const opcao = selectTurma.options[selectTurma.selectedIndex];
-            if (!opcao || !opcao.value) return alert('Selecione uma turma válida no dropdown primeiro.');
+            if (!opcao || !opcao.value) return notificar('Selecione uma turma válida no dropdown primeiro.');
             const token = opcao.dataset.token;
-            if (!token) return alert('Token da turma não disponível.');
+            if (!token) return notificar('Token da turma não disponível.');
 
             const link = API_URL + '/?token=' + encodeURIComponent(token);
             return navigator.clipboard.writeText(link).then(() => {
-                alert('Link Mágico copiado com sucesso!\n' + link);
+                notificar('Link da turma copiado com sucesso!', 'sucesso');
             }).catch(() => {
-                alert('Não foi possível copiar o link.');
+                notificar('Não foi possível copiar o link.');
             });
         }
 
         function editarPublicacao(pub) {
-            if (pub.turma_id === null) return alert('Edição de publicação geral será habilitada no Lote 2.');
+            
             document.getElementById('pub_id').value = pub.id;
             document.getElementById('titulo').value = pub.titulo || '';
             document.getElementById('descricao').value = pub.descricao || '';
             document.getElementById('data').value = pub.data || '';
             document.getElementById('tipo').value = pub.tipo || '';
-            selectTurma.value = String(pub.turma_id);
+            campoGeral.checked = pub.turma_id === null;
+            sincronizarDestino();
+            if (!campoGeral.checked) selectTurma.value = String(pub.turma_id);
+            document.getElementById('imagem-preservada').textContent = pub.imagem_url
+                ? 'Imagem atual preservada se nenhuma nova for enviada.' : '';
             document.getElementById('form-title').textContent = 'Editar Publicação';
             document.getElementById('btn-submit').textContent = 'Salvar Alterações';
             window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -308,7 +351,7 @@
 
         async function deletarPublicacao(id) {
             const senha = campoSenha.value;
-            if (!senha.trim()) return alert('Insira a Senha Administrativa para excluir.');
+            if (!senha.trim()) return notificar('Insira a Senha Administrativa para excluir.');
             if (!confirm('Deseja realmente excluir esta publicação permanentemente?')) return;
             try {
                 const resposta = await fetch(API_URL + '/api/publicacoes/' + encodeURIComponent(id), {
@@ -317,12 +360,12 @@
                 });
                 if (!resposta.ok) {
                     const erro = await resposta.json();
-                    return alert(erro.erro || 'Erro ao excluir a publicação.');
+                    return notificar(erro.erro || 'Erro ao excluir a publicação.');
                 }
-                alert('Publicação excluída com sucesso!');
+                notificar('Publicação excluída com sucesso!', 'sucesso');
                 await carregarListaGerenciamento(senha);
             } catch (erro) {
-                alert(erro.message || 'Erro de conexão ao tentar excluir.');
+                notificar(erro.message || 'Erro de conexão ao tentar excluir.');
             }
         }
 
@@ -333,10 +376,15 @@
             const senha = campoSenha.value;
             const id = dados.get('pub_id');
             const turmaSelecionada = selectTurma.value;
+            const geral = campoGeral.checked;
             const edicao = Boolean(id);
             const url = API_URL + '/api/publicacoes' + (edicao ? '/' + encodeURIComponent(id) : '');
             dados.delete('senha_admin');
-            if (!senha.trim()) return alert('Informe a Senha Administrativa.');
+            dados.delete('publicacao_geral');
+            dados.set('destino', geral ? 'geral' : 'turma');
+            if (geral) dados.delete('turma_id');
+            if (!senha.trim()) return notificar('Informe a Senha Administrativa.');
+            if (!geral && !turmaSelecionada) return notificar('Selecione uma turma para a publicação.');
 
             try {
                 const resposta = await fetch(url, {
@@ -345,18 +393,21 @@
                     body: dados
                 });
                 const resultado = await resposta.json();
-                if (!resposta.ok) return alert(resultado.erro || 'Falha na operação');
+                if (!resposta.ok) return notificar(resultado.erro || 'Falha na operação');
 
-                alert(edicao ? 'Publicação atualizada com sucesso!' : 'Publicação cadastrada com sucesso!');
+                notificar(edicao ? 'Publicação atualizada com sucesso!' : 'Publicação cadastrada com sucesso!', 'sucesso');
                 formulario.reset();
                 document.getElementById('pub_id').value = '';
                 campoSenha.value = senha;
-                selectTurma.value = turmaSelecionada;
+                campoGeral.checked = false;
+                sincronizarDestino();
+                if (turmaSelecionada) selectTurma.value = turmaSelecionada;
+                document.getElementById('imagem-preservada').textContent = '';
                 document.getElementById('form-title').textContent = 'Nova Publicação';
                 document.getElementById('btn-submit').textContent = 'Publicar';
                 await carregarListaGerenciamento(senha);
             } catch (erro) {
-                alert(erro.message || 'Erro ao conectar com o servidor local.');
+                notificar(erro.message || 'Erro ao conectar com o servidor local.');
             }
         });
 
