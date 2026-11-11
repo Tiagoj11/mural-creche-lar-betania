@@ -8,12 +8,6 @@ on:
     branches:
       - V1
   workflow_dispatch:
-    inputs:
-      run_lote2:
-        description: 'Compatibilidade com disparo manual (E2E Lote 2 sempre obrigatório)'
-        type: boolean
-        required: false
-        default: false
 
 permissions:
   contents: read
@@ -64,7 +58,6 @@ jobs:
         run: node --test tests/admin-browser.e2e.cjs
 
       # Obrigatório em push para V1 e PR destinado a V1. Preservar os testes anteriores.
-      # O antigo input manual run_lote2 não desliga esta suíte.
       - name: Aceite Lote 2 - API SQLite Chromium imagens e notificações
         run: node --test tests/lote2-integration.e2e.cjs
 
