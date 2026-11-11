@@ -62,6 +62,7 @@ function setup() {
     multer.diskStorage = () => ({});
     multer.MulterError = class extends Error {};
     const deps = { express, multer, path, './database': db,
+        os: { homedir: () => path.resolve(__dirname, '..', '..') },
         fs: { mkdirSync() {} }, cors: () => () => {},
         dotenv: { config() {} }, crypto: require('node:crypto') };
     vm.runInNewContext(source, {
