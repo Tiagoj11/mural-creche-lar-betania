@@ -159,8 +159,7 @@ test('Sessão administrativa: Chromium real, Express e SQLite fictícios', {time
             await $('#bootstrap-confirmar').fill(password);
             await $('#btn-criar-senha').click();
             await page.waitForFunction(()=>document.querySelector('#notificacao-mensagem')
-                .textContent.includes('Não autorizada') ||
-                document.querySelector('#notificacao-mensagem').textContent.includes('Não autorizado'));
+                .textContent.toLowerCase().includes('não autorizada'));
             assert.equal(await $('#admin-panel').isHidden(),true);
             await $('#token-inicial').fill(bootstrapToken);
             await $('#bootstrap-senha').fill(password);
@@ -208,6 +207,10 @@ test('Sessão administrativa: Chromium real, Express e SQLite fictícios', {time
             await $('#titulo').fill('Publicação geral temporária');
             await $('#data').fill('2026-11-11');
             await $('#tipo').selectOption('Evento');
+            await $('#imagem').setInputFiles({
+                name: 'foto-ficticia.png', mimeType: 'image/png',
+                buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/+VcAAAAASUVORK5CYII=', 'base64')
+            });
             await $('#btn-submit').click();
             await row('Publicação geral temporária').waitFor();
             assert.match(await row('Publicação geral temporária').innerText(),/Geral/);
