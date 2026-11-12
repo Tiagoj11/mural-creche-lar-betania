@@ -427,6 +427,33 @@ test('avisos acessíveis, sem HTML injetado, e validação de destino', async ()
     assert.equal(el.notificacao.hidden, true);
 });
 
+
+test('429 no login não inventa temporizador nem abre o painel', async () => {
+    const app = setupAdmin();
+    const { el, state, requests } = app;
+    await settle();
+    state.overrideStatus = { path: '/api/admin/auth/login', code: 429 };
+    await app.login();
+    assert.equal(el['auth-login'].hidden, false);
+    assert.equal(el['admin-panel'].hidden, true);
+    assert.match(el['notificacao-mensagem'].textContent, /Requisição não autorizada/);
+    assert.equal(el['login-senha'].value, '');
+    assert.equal(requests.some(r => r.url.endsWith('/api/turmas')), false);
+});
+
+test('5xx em /session bloqueia dados; rechecagem posterior recupera', async () => {
+    const app = setupAdmin({ overrideStatus:
+        { path: '/api/admin/auth/session', code: 500 } });
+    const { el, state, context } = app;
+    await settle();
+    assert.equal(el['auth-bloqueado'].hidden, false);
+    assert.equal(el['admin-panel'].hidden, true);
+    assert.equal(el['lista-publicacoes'].children.length, 0);
+    state.logged = true;
+    await vm.runInContext('verificarEstadoInicial()', context);
+    assert.equal(el['admin-panel'].hidden, false);
+});
+
 function setupPublic(search, payload, status = 200) {
     const ids = ['sec-geral', 'conteudo-turma', 'turma-titulo', 'header-turma'];
     const { document, elements: el, events } = makeDocument(ids);
