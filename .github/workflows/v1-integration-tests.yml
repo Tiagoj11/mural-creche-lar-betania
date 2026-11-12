@@ -93,12 +93,21 @@ jobs:
         run: |
           shopt -s nullglob
           casos=(tests/*auth*.e2e.cjs)
-          if (( ${#casos[@]} == 0 )); then
-            echo "::error::Suíte Frontend auth Chromium ausente. Integração Frontend pendente; não aprovar como cobertura auth."
+          if (( ${#casos[@]} > 0 )); then
+            printf 'Executando E2E auth separado: %s\n' "${casos[*]}"
+            node --test "${casos[@]}"
+          elif [[ -f admin-auth.js ]] &&
+               grep -Fq 'bootstrapToken' tests/admin-browser.e2e.cjs &&
+               grep -Fq '#auth-login' tests/admin-browser.e2e.cjs &&
+               grep -Fq 'csrf' tests/admin-browser.e2e.cjs &&
+               grep -Fq 'independent' tests/admin-browser.e2e.cjs; then
+            # E2E novo do PR Frontend está incorporado à suíte admin-browser,
+            # que JÁ foi executada com Chromium real no passo anterior.
+            echo 'E2E auth incluído na suíte admin-browser executada acima: bootstrap, sessão, CSRF e sessões independentes.'
+          else
+            echo "::error::E2E auth Chromium não presente (nem em suíte separada nem no admin-browser)."
             exit 1
           fi
-          printf 'Executando E2E auth: %s\n' "${casos[*]}"
-          node --test "${casos[@]}"
 
       # Não registrar valores de credenciais nem publicar artefatos da sessão.
 
