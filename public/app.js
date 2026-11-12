@@ -56,11 +56,7 @@ function criarCartaoPublicacao(pub, geral) {
         imagem.decoding = 'async';
         // Mantém proporção e a fotografia inteira, sem altura fixa/corte por cover.
         // A própria imagem determina a altura do cartão até o limite responsivo.
-        imagem.className = 'block mx-auto object-contain';
-        imagem.style.width = 'auto';
-        imagem.style.height = 'auto';
-        imagem.style.maxWidth = '100%';
-        imagem.style.maxHeight = 'min(56vh, 26rem)';
+        imagem.className = 'imagem-mural';
         imagem.onerror = () => {
             // Uma URL inexistente não deixa ícone de imagem quebrada no mural.
             imagem.onerror = null;
