@@ -1,9 +1,9 @@
 'use strict';
 
 /**
- * Browser E2E: the real V1 admin.html served by the real Express server
- * and a disposable SQLite database. Requires playwright only on CI runner.
- * No production secrets, DB, uploads or HTTP mocks are used.
+ * E2E Frontend: Chromium real + Express + SQLite DESCARTÁVEIS em integração.
+ * A branch Frontend depende dos arquivos admin-auth.js e migrate-admin-auth.js
+ * do PR Backend. Não executa sobre banco, servidor, segredo ou ambiente reais.
  */
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -12,282 +12,294 @@ const os = require('node:os');
 const path = require('node:path');
 const net = require('node:net');
 const crypto = require('node:crypto');
-const { spawn } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 const sqlite3 = require('sqlite3');
 const { chromium } = require('playwright');
 
-const sourceRoot = path.resolve(__dirname, '..');
-const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'mural-v1-browser-'));
-const uploads = fs.mkdtempSync(path.join(os.tmpdir(), 'mural-v1-uploads-'));
-const secret = crypto.randomBytes(24).toString('hex');
-const injection = '<img src=x onerror="window.__executouXss=true">';
-let server;
-let db;
-let browser;
-let context;
-let base;
+const root = path.resolve(__dirname, '..');
+const fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mural-auth-browser-'));
+const checkout = path.join(fixtureDir, 'checkout');
+const dataDir = path.join(fixtureDir, 'dados');
+const dbPath = path.join(dataDir, 'mural.db');
+const uploadDir = path.join(dataDir, 'uploads');
+const bootstrapToken = crypto.randomBytes(32).toString('hex'); // fictício e temporário
+const password = 'senha-ficticia-de-teste-2026';
+const newPassword = 'nova-senha-ficticia-de-teste-2026';
+const injection = '<img src=x onerror="window.__xss=true">';
+let server, db, browser, context, otherContext, origin;
 let processOutput = '';
 
-function execute(sql, values = []) {
+function run(db, sql, params = []) {
     return new Promise((resolve, reject) => {
-        db.run(sql, values, function (err) {
-            err ? reject(err) : resolve({ id: this.lastID, changes: this.changes });
+        db.run(sql, params, function(err) {
+            if (err) reject(err); else resolve({ id: this.lastID, changes: this.changes });
         });
     });
 }
-
-async function freePort() {
-    const socket = net.createServer();
-    await new Promise((resolve, reject) => {
-        socket.once('error', reject);
-        socket.listen(0, '127.0.0.1', resolve);
+async function openDb(filename) {
+    return await new Promise((resolve, reject) => {
+        const connection = new sqlite3.Database(filename,
+            err => err ? reject(err) : resolve(connection));
     });
-    const port = socket.address().port;
-    await new Promise(resolve => socket.close(resolve));
+}
+async function freePort() {
+    const netServer = net.createServer();
+    await new Promise((resolve, reject) => {
+        netServer.once('error', reject);
+        netServer.listen(0, '127.0.0.1', resolve);
+    });
+    const port = netServer.address().port;
+    await new Promise(resolve => netServer.close(resolve));
     return port;
 }
-
 async function startServer() {
-    fs.mkdirSync(path.join(temp, 'public'), { recursive: true });
-    for (const name of ['server.js', 'database.js']) {
-        fs.copyFileSync(path.join(sourceRoot, name), path.join(temp, name));
+    fs.mkdirSync(path.join(checkout, 'public'), { recursive:true });
+    fs.mkdirSync(path.join(checkout, 'scripts'), { recursive:true });
+    fs.mkdirSync(dataDir, { recursive: true });
+    fs.mkdirSync(uploadDir, { recursive: true });
+    for (const file of ['server.js', 'database.js', 'admin-auth.js']) {
+        const src = path.join(root, file);
+        assert.ok(fs.existsSync(src), 'A composição exige o PR Backend: ' + file);
+        fs.copyFileSync(src, path.join(checkout, file));
     }
-    fs.copyFileSync(path.join(sourceRoot, 'public', 'admin.html'),
-        path.join(temp, 'public', 'admin.html'));
-    fs.symlinkSync(path.join(sourceRoot, 'node_modules'),
-        path.join(temp, 'node_modules'), 'dir');
-    assert.notEqual(path.join(temp, 'banco.db'), path.join(sourceRoot, 'banco.db'));
+    const migrate = path.join('scripts', 'migrate-admin-auth.js');
+    assert.ok(fs.existsSync(path.join(root, migrate)),
+        'A composição exige o migrador offline do PR Backend.');
+    fs.copyFileSync(path.join(root, migrate), path.join(checkout, migrate));
+    fs.copyFileSync(path.join(root, 'public', 'admin.html'),
+        path.join(checkout, 'public', 'admin.html'));
+    fs.symlinkSync(path.join(root, 'node_modules'), path.join(checkout, 'node_modules'), 'dir');
+    assert.notEqual(dbPath, path.join(root, 'banco.db'));
 
-    base = 'http://127.0.0.1:' + await freePort();
+    db = await openDb(dbPath);
+    await run(db, 'PRAGMA foreign_keys=ON');
+    await run(db, 'CREATE TABLE Turmas (id INTEGER PRIMARY KEY AUTOINCREMENT, nome_turma TEXT NOT NULL UNIQUE, codigo_acesso TEXT UNIQUE)');
+    await run(db, 'CREATE TABLE Publicacoes (id INTEGER PRIMARY KEY AUTOINCREMENT, titulo TEXT NOT NULL, descricao TEXT, data TEXT NOT NULL, tipo TEXT NOT NULL, imagem_url TEXT, turma_id INTEGER, FOREIGN KEY(turma_id) REFERENCES Turmas(id) ON DELETE CASCADE)');
+    await run(db, 'INSERT INTO Turmas(nome_turma,codigo_acesso) VALUES (?,?)', ['Turma Alfa','aaaaaa']);
+    await run(db, 'INSERT INTO Turmas(nome_turma,codigo_acesso) VALUES (?,?)', ['Turma Beta','bbbbbb']);
+    await run(db, 'INSERT INTO Publicacoes(titulo,descricao,data,tipo,imagem_url,turma_id) VALUES (?,?,?,?,?,?)',
+        ['Evento para todos', 'Descrição de teste', '2026-11-11','Evento',null,null]);
+    await run(db, 'INSERT INTO Publicacoes(titulo,descricao,data,tipo,imagem_url,turma_id) VALUES (?,?,?,?,?,?)',
+        [injection, 'Descrição de teste', '2026-11-11','Evento',null,1]);
+    await run(db, 'INSERT INTO Publicacoes(titulo,descricao,data,tipo,imagem_url,turma_id) VALUES (?,?,?,?,?,?)',
+        ['Aviso da Beta', 'Conteúdo de teste', '2026-11-11','Evento',null,2]);
+    await new Promise((resolve, reject) => db.close(err => err ? reject(err) : resolve()));
+    db = null;
+    const migrated = spawnSync(process.execPath,
+        [migrate, '--db', dbPath], { cwd: checkout, encoding:'utf8', timeout:20000 });
+    assert.equal(migrated.status,0,'Migração fictícia: '+migrated.stderr);
+    origin = 'http://127.0.0.1:' + await freePort();
     server = spawn(process.execPath, ['server.js'], {
-        cwd: temp,
-        env: { ...process.env, PORT: new URL(base).port, ADMIN_SECRET_KEY: secret,
-            NODE_ENV: 'test', MURAL_UPLOAD_DIR: uploads },
-        stdio: ['ignore', 'pipe', 'pipe']
+        cwd: checkout,
+        env: { ...process.env,
+            NODE_ENV:'test', PORT: new URL(origin).port,
+            MURAL_DB_PATH: dbPath, MURAL_UPLOAD_DIR: uploadDir,
+            ADMIN_PUBLIC_ORIGIN: origin,
+            ADMIN_BOOTSTRAP_ENABLED:'true',
+            ADMIN_BOOTSTRAP_UNTIL:String(Date.now()+10*60*1000),
+            ADMIN_BOOTSTRAP_TOKEN:bootstrapToken
+        },
+        stdio:['ignore','pipe','pipe']
     });
-    server.stdout.on('data', chunk => { processOutput += chunk.toString().slice(0, 1000); });
-    server.stderr.on('data', chunk => { processOutput += chunk.toString().slice(0, 1000); });
-
-    let ready = false;
-    for (let attempt = 0; attempt < 100; attempt++) {
-        if (server.exitCode !== null || server.signalCode !== null) {
-            throw new Error('Express terminou antes do teste (verificar dependências e inicialização)');
-        }
-        try {
-            const res = await fetch(base + '/api/turmas', {
-                headers: { Authorization: secret },
-                signal: AbortSignal.timeout(500)
-            });
-            if (res.status === 200) { ready = true; break; }
-        } catch { /* Aguarda SQLite inicializar. */ }
-        await new Promise(resolve => setTimeout(resolve, 100));
+    server.stdout.on('data', chunk => processOutput += chunk.toString().slice(0,800));
+    server.stderr.on('data', chunk => processOutput += chunk.toString().slice(0,800));
+    let ready=false;
+    for(let attempt=0;attempt<100;attempt++){
+        if(server.exitCode !== null) throw new Error('Servidor encerrou antes dos testes');
+        try{
+            const response=await fetch(origin+'/api/admin/auth/status',{signal:AbortSignal.timeout(500)});
+            if(response.status===200){ready=true;break;}
+        }catch{}
+        await new Promise(resolve=>setTimeout(resolve,100));
     }
-    assert.ok(ready, 'Servidor Express/SQLite indisponível');
-    const dbFile = path.join(temp, 'banco.db');
-    assert.ok(fs.existsSync(dbFile), 'SQLite deve ser criado no diretório temporário');
-    db = await new Promise((resolve, reject) => {
-        const connection = new sqlite3.Database(dbFile, err =>
-            err ? reject(err) : resolve(connection));
-    });
-    await execute('PRAGMA foreign_keys = ON');
+    assert.ok(ready,'Express auth/SQLite descartável indisponível');
 }
-
-async function seed() {
-    const a = (await execute('INSERT INTO Turmas (nome_turma, codigo_acesso) VALUES (?,?)',
-        ['Turma Alfa', 'aaaaaa'])).id;
-    const b = (await execute('INSERT INTO Turmas (nome_turma, codigo_acesso) VALUES (?,?)',
-        ['Turma Beta', 'bbbbbb'])).id;
-    const insert = 'INSERT INTO Publicacoes (titulo, descricao, data, tipo, imagem_url, turma_id) VALUES (?,?,?,?,?,?)';
-    await execute(insert, ['Evento para todos', 'Descrição de teste', '2026-11-11', 'Evento', null, null]);
-    await execute(insert, [injection, 'Descrição inofensiva', '2026-11-11', 'Evento', null, a]);
-    await execute(insert, ['Aviso turma Beta', 'Conteúdo de teste', '2026-11-11', 'Evento', null, b]);
-}
-
-async function cleanup() {
-    if (context) await context.close();
-    if (browser) await browser.close();
-    if (db) await new Promise((resolve, reject) =>
-        db.close(err => err ? reject(err) : resolve()));
-    if (server && server.exitCode === null && server.signalCode === null) {
+async function cleanup(){
+    if(otherContext) await otherContext.close();
+    if(context) await context.close();
+    if(browser) await browser.close();
+    if(db) await new Promise((resolve,reject)=>db.close(e=>e?reject(e):resolve()));
+    if(server&&server.exitCode===null){
         server.kill('SIGTERM');
-        await Promise.race([
-            new Promise(resolve => server.once('exit', resolve)),
-            new Promise(resolve => setTimeout(resolve, 3000))
-        ]);
-        if (server.exitCode === null && server.signalCode === null) server.kill('SIGKILL');
+        await Promise.race([new Promise(r=>server.once('exit',r)),
+            new Promise(r=>setTimeout(r,3000))]);
+        if(server.exitCode===null) server.kill('SIGKILL');
     }
-    fs.rmSync(temp, { recursive: true, force: true });
-    fs.rmSync(uploads, { recursive: true, force: true });
+    fs.rmSync(fixtureDir,{recursive:true,force:true});
 }
-
-test('V1: painel real em Chromium com Express e SQLite temporários', { timeout: 90000 }, async t => {
-    try {
+test('Sessão administrativa: Chromium real, Express e SQLite fictícios', {timeout:180000}, async t=>{
+    try{
         await startServer();
-        await seed();
-        browser = await chromium.launch({ headless: true });
-        context = await browser.newContext({
-            permissions: ['clipboard-read', 'clipboard-write']
+        browser=await chromium.launch({headless:true});
+        context=await browser.newContext({permissions:['clipboard-read','clipboard-write']});
+        const page=await context.newPage();
+        const requests=[],dialogs=[];
+        page.on('request', r=>{
+            const u=new URL(r.url());
+            if(u.origin!==origin||!u.pathname.startsWith('/api/'))return;
+            requests.push({path:u.pathname.replace(/\/token\/[^/]+/,'/token/[oculto]'),
+                method:r.method(), auth:Boolean(r.headers().authorization),
+                csrf:Boolean(r.headers()['x-csrf-token'])});
         });
-        const page = await context.newPage();
-        const requests = [];
-        const dialogs = [];
-        page.on('request', request => {
-            const url = new URL(request.url());
-            if (url.origin !== base || !url.pathname.startsWith('/api/')) return;
-            const header = request.headers()['authorization'];
-            requests.push({
-                pathname: url.pathname.replace(/\/token\/[^/]+/, '/token/[redacted]'),
-                method: request.method(), hasAuth: Boolean(header),
-                validAuth: header === secret
-            });
+        page.on('dialog',async dialog=>{dialogs.push(dialog.type());await dialog.accept();});
+        await page.route('https://cdn.tailwindcss.com/**',route=>route.abort());
+        const response=await page.goto(origin+'/admin.html',{waitUntil:'domcontentloaded'});
+        assert.equal(response.status(),200);
+        await page.addStyleTag({content:'.hidden{display:none!important}'});
+        const $=selector=>page.locator(selector);
+        const list=$('#lista-publicacoes');
+        const row=text=>list.locator(':scope > div').filter({hasText:text});
+
+        await t.test('bootstrap só após segredo de operador; não cria sessão', async()=>{
+            await $('#auth-bootstrap').waitFor({state:'visible'});
+            assert.equal(await $('#admin-panel').isHidden(),true);
+            assert.equal(requests.some(r=>r.path==='/api/turmas'),false);
+            await $('#token-inicial').fill('invalidado');
+            await $('#bootstrap-senha').fill(password);
+            await $('#bootstrap-confirmar').fill(password);
+            await $('#btn-criar-senha').click();
+            await page.waitForResponse(r=>r.url().endsWith('/api/admin/auth/bootstrap')&&r.status()===403)
+                .catch(()=>{}); // A resposta pode ter chegado antes do watcher; a UI é o oráculo.
+            assert.equal(await $('#admin-panel').isHidden(),true);
+            await $('#token-inicial').fill(bootstrapToken);
+            await $('#bootstrap-senha').fill(password);
+            await $('#bootstrap-confirmar').fill(password);
+            await $('#btn-criar-senha').click();
+            await $('#auth-login').waitFor({state:'visible'});
+            assert.equal(await $('#token-inicial').inputValue(),'');
+            assert.equal(await $('#admin-panel').isHidden(),true);
         });
-        page.on('dialog', async dialog => {
-            // Não registrar o texto completo: alertas podem conter links com tokens.
-            dialogs.push({ type: dialog.type(),
-                category: /já existe/.test(dialog.message()) ? 'duplicada'
-                    : /exclu/.test(dialog.message()) ? 'exclusao' : 'outro' });
-            await dialog.accept();
+        await t.test('401 login inválido e login correto único campo, listagem automática',async()=>{
+            await $('#login-senha').fill('senha-incorreta');
+            await $('#btn-entrar').click();
+            await $('#auth-login').waitFor({state:'visible'});
+            assert.equal(await $('#login-senha').inputValue(),'');
+            await $('#login-senha').fill(password);
+            await $('#btn-entrar').click();
+            await $('#admin-panel').waitFor({state:'visible'});
+            await row('Evento para todos').waitFor();
+            assert.equal(await $('#senha_admin').count(),0);
+            assert.equal(await $('#nova-turma-senha').count(),0);
+            assert.equal(await $('#turma_id option').count(),3);
+            assert.match(await row('Evento para todos').innerText(),/Geral/);
+            assert.match(await row('Aviso da Beta').innerText(),/Turma Beta/);
+            for(const r of requests){assert.equal(r.auth,false,'Nunca Authorization: '+r.path);}
+            assert.ok(requests.some(r=>r.path==='/api/turmas'&&r.method==='GET'));
+            assert.ok(requests.some(r=>r.path==='/api/admin/publicacoes'&&r.method==='GET'));
         });
-        // A CDN de CSS não deve ser necessária para os testes funcionais.
-        await page.route('https://cdn.tailwindcss.com/**', route => route.abort());
-        const response = await page.goto(base + '/admin.html', { waitUntil: 'domcontentloaded' });
-        assert.equal(response.status(), 200);
-        await page.addStyleTag({ content: '.hidden { display: none !important; }' });
-
-        const $ = selector => page.locator(selector);
-        const status = $('#estado-admin');
-        const load = $('#btn-carregar-dados');
-        const list = $('#lista-publicacoes');
-        const row = value => list.locator(':scope > div').filter({ hasText: value });
-
-        await t.test('não solicita listagens protegidas antes de autenticar', async () => {
-            assert.equal(requests.filter(r => r.method === 'GET'
-                && ['/api/turmas', '/api/admin/publicacoes'].includes(r.pathname)).length, 0);
-            assert.match(await status.innerText(), /Informe a senha/);
-        });
-
-        await t.test('senha inválida: 401 e nenhum dado sensível no painel', async () => {
-            await $('#senha_admin').fill('credencial-incorreta');
-            await load.click();
-            await page.waitForFunction(() => document.querySelector('#estado-admin')
-                .textContent.includes('inválida'));
-            assert.match(await status.innerText(), /inválida/);
-            assert.equal(await $('#turma_id option').count(), 1);
-            assert.equal(requests.some(r => r.pathname === '/api/turmas'
-                && r.hasAuth && !r.validAuth), true);
-            assert.equal(requests.some(r => r.pathname === '/api/admin/publicacoes'), false);
-        });
-
-        await t.test('senha correta: Authorization nos dois GETs e Geral/turmas', async () => {
-            await $('#senha_admin').fill(secret);
-            await load.click();
-            await page.waitForFunction(() => document.querySelector('#estado-admin')
-                .textContent.includes('carregadas'));
-            assert.ok(requests.some(r => r.method === 'GET' && r.pathname === '/api/turmas' && r.validAuth));
-            assert.ok(requests.some(r => r.method === 'GET' && r.pathname === '/api/admin/publicacoes' && r.validAuth));
-            assert.equal(await $('#turma_id option').count(), 3);
-            assert.equal(await row('Evento para todos').count(), 1);
-            assert.match(await row('Evento para todos').innerText(), /Geral/);
-            assert.match(await row('Aviso turma Beta').innerText(), /Turma Beta/);
-            const editarGeral = row('Evento para todos').getByRole('button', { name: 'Editar' });
-            // Lote 1: edição geral desabilitada; Lote 2: CRUD geral habilitado.
-            if (await $('#publicacao-geral').count()) {
-                assert.equal(await editarGeral.isEnabled(), true);
-            } else {
-                assert.equal(await editarGeral.isDisabled(), true);
-            }
-        });
-
-        await t.test('texto vindo do SQLite não executa HTML/JS', async () => {
-            assert.equal(await row(injection).count(), 1);
-            assert.equal(await row(injection).locator('img').count(), 0);
-            assert.equal(await page.evaluate(() => window.__executouXss === true), false);
-        });
-
-        await t.test('troca de senha limpa dados administrativos antigos', async () => {
-            await $('#senha_admin').fill('outra-senha-incorreta');
-            assert.equal(await $('#turma_id option').count(), 1);
-            assert.equal(await row('Evento para todos').count(), 0);
-            await $('#senha_admin').fill(secret);
-            await load.click();
-            await page.waitForFunction(() => document.querySelector('#estado-admin')
-                .textContent.includes('carregadas'));
-        });
-
-        await t.test('cadastra turma, rejeita duplicidade e preserva código', async () => {
-            await page.getByTitle('Cadastrar nova turma').click();
-            await $('#nova-turma-nome').fill('Turma Nova');
-            await $('#nova-turma-senha').fill(secret);
-            await page.getByRole('button', { name: 'Cadastrar', exact: true }).click();
-            await page.waitForFunction(() => Array.from(document.querySelectorAll('#turma_id option'))
-                .some(option => option.textContent === 'Turma Nova'));
-            assert.equal(await $('#turma_id option').count(), 4);
-
-            await page.getByTitle('Cadastrar nova turma').click();
-            await $('#nova-turma-nome').fill('Turma Nova');
-            await $('#nova-turma-senha').fill(secret);
-            const duplicateResponse = page.waitForResponse(response =>
-                response.url() === base + '/api/turmas' &&
-                response.request().method() === 'POST' && response.status() === 400);
-            await page.getByRole('button', { name: 'Cadastrar', exact: true }).click();
-            await duplicateResponse;
-            if (await $('#notificacao-mensagem').count()) {
-                await page.waitForFunction(() =>
-                    document.querySelector('#notificacao-mensagem')?.textContent.includes('já existe'));
-                assert.match(await $('#notificacao-mensagem').innerText(), /já existe/);
-            } else {
-                assert.ok(dialogs.some(d => d.category === 'duplicada'));
-            }
-            assert.equal(await $('#turma_id option').count(), 4);
-            await page.getByRole('button', { name: 'Cancelar' }).click();
-        });
-
-        await t.test('copia link válido /?token= sem registrar token', async () => {
-            await $('#turma_id').selectOption({ label: 'Turma Nova' });
-            await page.getByRole('button', { name: 'Copiar Link Mágico' }).click();
-            const copied = await page.evaluate(() => navigator.clipboard.readText());
-            const url = new URL(copied);
-            assert.equal(url.origin, base);
-            assert.equal(url.pathname, '/');
-            assert.equal([...url.searchParams.keys()].join(','), 'token');
-            assert.match(url.searchParams.get('token'), /^[0-9a-f]{6}$/);
-            // O workspace descartável serve admin.html, não copia index.html.
-            // Validamos o token via endpoint real, sem exigir uma homepage de teste.
-            const valid = await fetch(base + '/api/publicacoes/token/' +
-                encodeURIComponent(url.searchParams.get('token')));
-            assert.equal(valid.status, 200);
-            const invalid = await fetch(base + '/api/publicacoes/token/invalido');
-            assert.equal(invalid.status, 404);
-        });
-
-        await t.test('cria, edita e exclui publicação específica pela interface real', async () => {
-            await $('#turma_id').selectOption({ label: 'Turma Nova' });
-            await $('#titulo').fill('Publicação temporária');
-            await $('#descricao').fill('Conteúdo fictício');
+        await t.test('XSS, edição Geral↔Turma e upload sem senha repetida',async()=>{
+            assert.equal(await row(injection).count(),1);
+            assert.equal(await row(injection).locator('img').count(),0);
+            assert.equal(await page.evaluate(()=>window.__xss===true),false);
+            await row('Evento para todos').getByRole('button',{name:'Editar'}).click();
+            assert.equal(await $('#publicacao-geral').isChecked(),true);
+            assert.equal(await $('#turma_id').isDisabled(),true);
+            await $('#publicacao-geral').uncheck();
+            assert.equal(await $('#turma_id').inputValue(),'');
+            await $('#turma_id').selectOption({label:'Turma Alfa'});
+            await $('#titulo').fill('Evento transformado em específico');
+            await $('#btn-submit').click();
+            await row('Evento transformado em específico').waitFor();
+            assert.match(await row('Evento transformado em específico').innerText(),/Turma Alfa/);
+            await $('#publicacao-geral').check();
+            assert.equal(await $('#turma_id').isDisabled(),true);
+            await $('#titulo').fill('Publicação geral temporária');
             await $('#data').fill('2026-11-11');
             await $('#tipo').selectOption('Evento');
-            await page.getByRole('button', { name: 'Publicar', exact: true }).click();
-            await row('Publicação temporária').waitFor();
-            assert.equal(requests.some(r => r.pathname === '/api/publicacoes'
-                && r.method === 'POST' && r.validAuth), true);
-
-            await row('Publicação temporária').getByRole('button', { name: 'Editar' }).click();
-            assert.equal(await $('#titulo').inputValue(), 'Publicação temporária');
-            await $('#titulo').fill('Publicação editada');
-            await page.getByRole('button', { name: 'Salvar Alterações' }).click();
-            await row('Publicação editada').waitFor();
-            assert.equal(await row('Publicação temporária').count(), 0);
-            assert.equal(requests.some(r => /^\/api\/publicacoes\/[0-9]+$/.test(r.pathname)
-                && r.method === 'PUT' && r.validAuth), true);
-
-            await row('Publicação editada').getByRole('button', { name: 'Excluir' }).click();
-            await page.waitForFunction(() => !document.querySelector('#lista-publicacoes')
-                .textContent.includes('Publicação editada'));
-            assert.ok(dialogs.some(d => d.type === 'confirm'));
-            assert.equal(requests.some(r => /^\/api\/publicacoes\/[0-9]+$/.test(r.pathname)
-                && r.method === 'DELETE' && r.validAuth), true);
+            await $('#btn-submit').click();
+            await row('Publicação geral temporária').waitFor();
+            assert.match(await row('Publicação geral temporária').innerText(),/Geral/);
+            assert.ok(requests.some(r=>r.path==='/api/publicacoes'&&r.method==='POST'&&r.csrf));
+            assert.ok(requests.some(r=>/^\/api\/publicacoes\/\d+$/.test(r.path)&&r.method==='PUT'&&r.csrf));
         });
-    } finally {
-        await cleanup();
-    }
+        await t.test('turmas, link individual, excluir com confirmação e CSRF',async()=>{
+            await page.getByTitle('Cadastrar nova turma').click();
+            await $('#nova-turma-nome').fill('Turma Nova');
+            await page.getByRole('button',{name:'Cadastrar',exact:true}).click();
+            await page.locator('#turma_id option',{hasText:'Turma Nova'}).waitFor();
+            await page.getByTitle('Cadastrar nova turma').click();
+            await $('#nova-turma-nome').fill('Turma Nova');
+            await page.getByRole('button',{name:'Cadastrar',exact:true}).click();
+            await page.waitForFunction(()=>document.querySelector('#notificacao-mensagem')
+                .textContent.includes('já existe'));
+            assert.equal(await $('#turma_id option').count(),4);
+            await page.getByRole('button',{name:'Cancelar'}).click();
+            await $('#turma_id').selectOption({label:'Turma Nova'});
+            await page.getByRole('button',{name:'Copiar Link Mágico'}).click();
+            const copied=new URL(await page.evaluate(()=>navigator.clipboard.readText()));
+            assert.equal(copied.origin,origin);
+            assert.deepEqual([...copied.searchParams.keys()],['token']);
+            assert.match(copied.searchParams.get('token'),/^[0-9a-f]{6}$/);
+            const ok=await fetch(origin+'/api/publicacoes/token/'+
+                encodeURIComponent(copied.searchParams.get('token')));
+            assert.equal(ok.status,200);
+            assert.equal((await fetch(origin+'/api/publicacoes/token/invalido')).status,404);
+            await row('Publicação geral temporária').getByRole('button',{name:'Excluir'}).click();
+            await page.waitForFunction(()=>!document.querySelector('#lista-publicacoes')
+                .textContent.includes('Publicação geral temporária'));
+            assert.ok(dialogs.includes('confirm'));
+            assert.ok(requests.some(r=>/^\/api\/publicacoes\/\d+$/.test(r.path)&&r.method==='DELETE'&&r.csrf));
+        });
+        await t.test('reload e duas abas com mesmo cookie mantêm sessão e CSRF',async()=>{
+            const csrf1=await page.evaluate(()=>csrfToken);
+            await page.reload({waitUntil:'domcontentloaded'});
+            await $('#admin-panel').waitFor({state:'visible'});
+            assert.equal(await page.evaluate(()=>csrfToken),csrf1);
+            const another=await context.newPage();
+            await another.route('https://cdn.tailwindcss.com/**',route=>route.abort());
+            await another.goto(origin+'/admin.html',{waitUntil:'domcontentloaded'});
+            await another.locator('#admin-panel').waitFor({state:'visible'});
+            assert.equal(await another.evaluate(()=>csrfToken),csrf1);
+            await another.close();
+            for(const width of [320,375,430,1280]){
+                await page.setViewportSize({width,height:800});
+                assert.equal(await page.evaluate(()=>
+                    document.documentElement.scrollWidth>window.innerWidth),false);
+            }
+        });
+        await t.test('logout limpa UI e outra sessão independente continua',async()=>{
+            otherContext=await browser.newContext();
+            const independent=await otherContext.newPage();
+            await independent.route('https://cdn.tailwindcss.com/**',route=>route.abort());
+            await independent.goto(origin+'/admin.html');
+            await independent.locator('#login-senha').fill(password);
+            await independent.locator('#btn-entrar').click();
+            await independent.locator('#admin-panel').waitFor({state:'visible'});
+            const otherCsrf=await independent.evaluate(()=>csrfToken);
+            assert.notEqual(otherCsrf,await page.evaluate(()=>csrfToken));
+            await $('#btn-sair').click();
+            await $('#auth-login').waitFor({state:'visible'});
+            assert.equal(await $('#lista-publicacoes').innerText(),
+                'Aguardando autenticação administrativa...');
+            assert.equal(await $('#turma_id option').count(),1);
+            assert.equal(await $('#admin-panel').isHidden(),true);
+            await independent.reload();
+            await independent.locator('#admin-panel').waitFor({state:'visible'});
+            await $('#login-senha').fill(password);
+            await $('#btn-entrar').click();
+            await $('#admin-panel').waitFor({state:'visible'});
+        });
+        await t.test('troca exige senha anterior e revoga todas as sessões',async()=>{
+            await $('#btn-alterar-senha').click();
+            await $('#auth-change').waitFor({state:'visible'});
+            await $('#senha-atual').fill('errada');
+            await $('#senha-nova').fill(newPassword);
+            await $('#senha-confirmar').fill(newPassword);
+            await $('#btn-confirmar-troca').click();
+            await page.waitForFunction(()=>document.querySelector('#notificacao-mensagem')
+                .textContent.includes('Senha atual incorreta'));
+            assert.equal(await $('#auth-change').isVisible(),true);
+            await $('#senha-atual').fill(password);
+            await $('#senha-nova').fill(newPassword);
+            await $('#senha-confirmar').fill(newPassword);
+            await $('#btn-confirmar-troca').click();
+            await $('#auth-login').waitFor({state:'visible'});
+            const independent=otherContext.pages()[0];
+            await independent.reload();
+            await independent.locator('#auth-login').waitFor({state:'visible'});
+            await $('#login-senha').fill(newPassword);
+            await $('#btn-entrar').click();
+            await $('#admin-panel').waitFor({state:'visible'});
+        });
+    }finally{await cleanup();}
 });
