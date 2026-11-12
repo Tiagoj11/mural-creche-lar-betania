@@ -189,6 +189,7 @@
         let csrfToken = null;
         let geracaoSessao = 0;
         let estadoAutenticacao = 'inicial';
+        let mutacaoEmCurso = false;
         let temporizadorAviso = null;
 
         function el(id) { return document.getElementById(id); }
@@ -294,11 +295,15 @@
                 encerrarSessaoLocal();
                 throw erroApi(-1, 'Sessão encerrada.');
             }
-            const dados = await interpretarResposta(resposta);
-            if (snapshot !== geracaoSessao) throw erroApi(-1, 'Resposta de sessão anterior descartada.');
-            if (protegido && resposta.status === 403) {
-                el('btn-revalidar-sessao').hidden = false;
+            let dados;
+            try {
+                dados = await interpretarResposta(resposta);
+            } catch (erro) {
+                if (protegido && resposta.status === 403 && snapshot === geracaoSessao)
+                    el('btn-revalidar-sessao').hidden = false;
+                throw erro;
             }
+            if (snapshot !== geracaoSessao) throw erroApi(-1, 'Resposta de sessão anterior descartada.');
             return dados;
         }
         function tratarErro(erro) {
@@ -427,7 +432,7 @@
                 exibirTela('login');
                 notificar('Senha alterada. Entre novamente.', 'sucesso');
             } catch (erro) {
-                if (erro.status === 0 || erro instanceof TypeError) {
+                if (erro.status === 0 || erro.status >= 500 || erro instanceof TypeError) {
                     // Não há prova de revogação se a conexão falhar.
                     invalidarEstadoPrivado();
                     exibirTela('bloqueado');
@@ -558,10 +563,12 @@
             el('nova-turma-nome').value = '';
         }
         async function salvarNovaTurma() {
+            if (mutacaoEmCurso) return;
             try {
                 garantirSessao();
                 const nome_turma = el('nova-turma-nome').value.trim();
                 if (!nome_turma) return notificar('Digite o nome da turma.');
+                mutacaoEmCurso = true;
                 const resultado = await solicitar('/api/turmas', {
                     method: 'POST', protegido: true, csrf: true, json: true,
                     body: JSON.stringify({ nome_turma })
@@ -573,6 +580,7 @@
                 if (versao === geracaoSessao) await carregarListaGerenciamento(versao);
                 estadoAdmin.textContent = 'Turmas e publicações carregadas.';
             } catch (erro) { tratarErro(erro); }
+            finally { mutacaoEmCurso = false; }
         }
         function copiarLinkTurma() {
             try {
@@ -606,18 +614,22 @@
             } catch (erro) { tratarErro(erro); }
         }
         async function deletarPublicacao(id) {
+            if (mutacaoEmCurso) return;
             try {
                 garantirSessao();
                 if (!confirm('Deseja realmente excluir esta publicação permanentemente?')) return;
+                mutacaoEmCurso = true;
                 await solicitar('/api/publicacoes/' + encodeURIComponent(id), {
                     method: 'DELETE', protegido: true, csrf: true
                 });
                 notificar('Publicação excluída com sucesso!', 'sucesso');
                 await carregarListaGerenciamento();
             } catch (erro) { tratarErro(erro); }
+            finally { mutacaoEmCurso = false; }
         }
         async function salvarPublicacao(evento) {
             evento.preventDefault();
+            if (mutacaoEmCurso) return;
             try {
                 garantirSessao();
                 const formulario = evento.target;
@@ -633,6 +645,7 @@
                 if (geral) dados.delete('turma_id');
                 if (!geral && !turmaSelecionada)
                     return notificar('Selecione uma turma para a publicação.');
+                mutacaoEmCurso = true;
                 await solicitar('/api/publicacoes' + (edicao ? '/' + encodeURIComponent(id) : ''), {
                     method: edicao ? 'PUT' : 'POST', protegido: true, csrf: true, body: dados
                 });
@@ -648,6 +661,7 @@
                 el('btn-submit').textContent = 'Publicar';
                 await carregarListaGerenciamento();
             } catch (erro) { tratarErro(erro); }
+            finally { mutacaoEmCurso = false; }
         }
 
         document.addEventListener('DOMContentLoaded', () => {
