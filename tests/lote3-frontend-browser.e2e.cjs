@@ -104,34 +104,53 @@ test('Lote 3: Chromium PWA localhost e quatro proporções sem cache sensível',
 
             for (const [width, height] of [[320, 640], [375, 760], [430, 850], [1280, 900]]) {
                 await page.setViewportSize({ width, height });
-                await page.locator('#sec-geral img').first().waitFor();
-                for (const img of await page.locator('#sec-geral article img, #conteudo-turma article img').all()) {
-                    await img.scrollIntoViewIfNeeded();
-                    await img.evaluate(node => node.decode());
+                const entries = [];
+
+                // Cada aba precisa estar visível antes de rolar e decodificar
+                // imagens lazy. Não tentar scrollIntoView em #sec-turma oculta.
+                for (const [aba, secao] of [
+                    ['#tab-geral', '#sec-geral'],
+                    ['#tab-turma', '#sec-turma']
+                ]) {
+                    await page.locator(aba).click();
+                    await page.locator(secao).waitFor({ state: 'visible' });
+                    const fotosVisiveis = page.locator(secao + ' article img');
+                    for (const img of await fotosVisiveis.all()) {
+                        await img.scrollIntoViewIfNeeded();
+                        await img.evaluate(node => node.decode());
+                    }
+                    const medidas = await page.locator(secao + ' article')
+                        .evaluateAll(articles => articles.flatMap(article => {
+                            const img = article.querySelector('img');
+                            if (!img) return [];
+                            const box = img.getBoundingClientRect();
+                            const card = article.getBoundingClientRect();
+                            return [{
+                                formato: article.querySelector('h2')?.textContent,
+                                natWidth: img.naturalWidth, natHeight: img.naturalHeight,
+                                boxWidth: box.width, boxHeight: box.height,
+                                withinCard: box.left >= card.left - 1 && box.right <= card.right + 1,
+                                maxAllowed: Math.min(window.innerHeight * .56, 416),
+                                overflow: document.documentElement.scrollWidth > window.innerWidth
+                            }];
+                        }));
+                    entries.push(...medidas);
                 }
-                const entries = await page.locator('#sec-geral article, #conteudo-turma article')
-                    .evaluateAll(articles => articles.flatMap(article => {
-                        const img = article.querySelector('img');
-                        if (!img) return [];
-                        const box = img.getBoundingClientRect();
-                        const card = article.getBoundingClientRect();
-                        return [{
-                            natWidth: img.naturalWidth, natHeight: img.naturalHeight,
-                            boxWidth: box.width, boxHeight: box.height,
-                            withinCard: box.left >= card.left - 1 && box.right <= card.right + 1,
-                            maxAllowed: Math.min(window.innerHeight * .56, 416),
-                            overflow: document.documentElement.scrollWidth > window.innerWidth
-                        }];
-                    }));
-                assert.equal(entries.length, 4);
+                assert.equal(entries.length, 4, 'Todos os formatos foram medidos');
+                assert.deepEqual(entries.map(e => e.formato).sort(),
+                    Object.keys(fotos).sort(), 'Vertical, horizontal, quadrada e panorâmica');
                 for (const e of entries) {
-                    assert.ok(e.natWidth && e.natHeight);
+                    assert.deepEqual([e.natWidth, e.natHeight], fotos[e.formato],
+                        'Dimensões naturais de ' + e.formato);
                     assert.ok(Math.abs(e.boxWidth / e.boxHeight -
                         e.natWidth / e.natHeight) < .01, 'Sem deformar/cortar imagem');
                     assert.ok(e.boxHeight <= e.maxAllowed + 1, 'Altura responsiva');
                     assert.ok(e.withinCard && !e.overflow, 'Sem overflow horizontal');
                 }
             }
+            // Testes de XSS e imagens ausentes exigem que Geral esteja visível.
+            await page.locator('#tab-geral').click();
+            await page.locator('#sec-geral').waitFor({ state: 'visible' });
             assert.equal(await page.locator('#sec-geral [onerror]').count(), 0);
             assert.equal(await page.locator('#sec-geral img[src="/uploads/ausente.png"]').count(), 0);
             assert.match(await page.locator('#sec-geral').innerText(), /<img src=x onerror/);
