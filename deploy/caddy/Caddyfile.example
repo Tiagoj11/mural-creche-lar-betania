@@ -1,0 +1,10 @@
+# EXEMPLO, NÃO PUBLICAR sem autorização. Substituir pelo domínio REAL aprovado.
+# Caddy só obtém TLS automático quando DNS e portas 80/443 estão corretos.
+mural.example.invalid {
+    encode zstd gzip
+    # Evita cache HTTP acidental de conteúdo com token/credenciais.
+    header Cache-Control "no-store"
+    header X-Content-Type-Options "nosniff"
+    header Referrer-Policy "no-referrer"
+    reverse_proxy 127.0.0.1:3000
+}

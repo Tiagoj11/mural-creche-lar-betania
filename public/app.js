@@ -53,7 +53,15 @@ function criarCartaoPublicacao(pub, geral) {
         imagem.src = imagemUrl;
         imagem.alt = pub.titulo ? 'Imagem: ' + String(pub.titulo) : 'Imagem da publicação';
         imagem.loading = 'lazy';
-        imagem.className = 'w-full max-h-64 object-cover';
+        imagem.decoding = 'async';
+        // Mantém proporção e a fotografia inteira, sem altura fixa/corte por cover.
+        // A própria imagem determina a altura do cartão até o limite responsivo.
+        imagem.className = 'imagem-mural';
+        imagem.onerror = () => {
+            // Uma URL inexistente não deixa ícone de imagem quebrada no mural.
+            imagem.onerror = null;
+            imagem.remove();
+        };
         artigo.appendChild(imagem);
     }
 
