@@ -336,7 +336,7 @@ test('Lote 2 - integração combinada real: API/SQLite/Chromium/uploads', { time
                 await page.locator('#login-senha').fill(secret);
                 await page.locator('#btn-entrar').click();
                 await page.locator('#admin-panel').waitFor({ state: 'visible' });
-                await page.locator('#turma_id option').last().waitFor();
+                await page.waitForFunction(() => document.querySelector('#turma_id')?.options.length >= 3);
             } else {
                 const password = page.locator('#senha_admin');
                 await password.fill(secret);
