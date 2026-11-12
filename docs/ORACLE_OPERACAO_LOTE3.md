@@ -1,6 +1,8 @@
 # Operação planejada — Oracle Cloud Always Free / Mural Creche (Lote 3)
 
-**Estado: preparação offline; NENHUMA VM, domínio, DNS, HTTPS, banco real ou deploy foram acessados.** Este guia acompanha `deploy/systemd/mural-creche.service`, `deploy/caddy/Caddyfile.example`, `scripts/ops/{preflight,mural_data}.py` e `.env.example`. Não é autorização de publicação ou de provisionamento pago.
+**Estado: preparação offline; NENHUMA VM, domínio, DNS, HTTPS, banco real ou deploy foram acessados.**
+
+> **Autenticação administrativa futura (MELHORIA-ADM-AUTH-001):** consultar também [ADMIN_AUTH_OPERACAO.md](ADMIN_AUTH_OPERACAO.md). Após o cutover autorizado, `ADMIN_SECRET_KEY`/`Authorization` deixa de ser mecanismo admin; o novo fluxo exige migração offline, sessão, cookie `Secure` e CSRF. Não ativar bootstrap ou migração real apenas com este guia. Este guia acompanha `deploy/systemd/mural-creche.service`, `deploy/caddy/Caddyfile.example`, `scripts/ops/{preflight,mural_data}.py` e `.env.example`. Não é autorização de publicação ou de provisionamento pago.
 
 ## 1. Pré-requisitos e limites externos
 
@@ -30,7 +32,7 @@ Criar diretórios sob propriedade de `mural:mural` com modo `0700` para state/up
 
 1. Provisionamento controlado: confirmar quota Always Free, arquitetura da imagem, espaço em volume persistente, rede e disponibilidade; negar tráfego público exceto `80/tcp`, `443/tcp` e SSH `22/tcp` **restrito à origem administrativa autorizada**. Não permitir `3000/tcp` na NSG nem no firewall host. O Express atual pode escutar em interfaces públicas; mesmo atrás do proxy, o bloqueio de `3000/tcp` é obrigatório. Qualquer ajuste de bind local em `server.js` deve ser requisitado ao Backend.
 2. Criar `mural` como conta de sistema sem login interativo e pastas acima; **não** executar Node como root. O operador instala Node.js 22 ARM e Caddy do repositório oficial, confere versões, e monta um release novo sem dados. Não usar `npm install` destravado: `npm ci --omit=dev --no-audit --no-fund` no release (lockfile inspecionado).
-3. Configurar `/etc/mural-creche/mural.env` (fora do Git, acesso restrito) com `ADMIN_SECRET_KEY` nova e forte, `MURAL_DB_PATH=/srv/mural-creche/state/banco.db`, `MURAL_UPLOAD_DIR=/srv/mural-creche/uploads`, `PORT=3000`. Nunca reutilizar segredo dos testes nem imprimir variável em log. Não abrir `/admin.html` a terceiros até revisar política de acesso ao painel.
+3. Configurar `/etc/mural-creche/mural.env` (fora do Git, acesso restrito), com `MURAL_DB_PATH=/srv/mural-creche/state/banco.db`, `MURAL_UPLOAD_DIR=/srv/mural-creche/uploads` e `PORT=3000`. No fluxo **legado pré-autenticação por sessão**, `ADMIN_SECRET_KEY` ainda é necessária; na release nova, **proibir fallback para essa variável** e seguir `docs/ADMIN_AUTH_OPERACAO.md` para bootstrap fechado por padrão, segredo inicial provisionado e removido apenas por operador, HTTPS/cookie/Origin/CSRF. Não misturar releases/backend/frontend/bancos incompatíveis. Nunca imprimir segredo em log nem abrir `/admin.html` publicamente antes do gate de segurança.
 4. Quando a nova lógica Backend suportar caminhos externos e o banco tiver sido preparado/verificado, executar **como usuário `mural`**:
    ```sh
    python3 /opt/mural-creche/current/scripts/ops/preflight.py \

@@ -4,13 +4,26 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Painel Administrativo - CEI Lar Betânia</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <style>#notificacao[hidden] { display: none !important; }</style>
+    <style>
+        [hidden] { display: none !important; }
+        #notificacao[hidden] { display: none !important; }
+        .auth-field { width:100%; padding:.7rem .8rem; border:1px solid #d1d5db; border-radius:.75rem; }
+        .auth-button { background:#b83b43; color:white; padding:.7rem 1rem; border-radius:.75rem; font-weight:700; }
+        .auth-button:disabled { opacity:.55; cursor:wait; }
+        .auth-secondary { border:1px solid #d1d5db; border-radius:.75rem; padding:.6rem 1rem; }
+    </style>
 </head>
 <body class="bg-gray-100 min-h-screen text-gray-800">
     <header class="bg-[#b83b43] text-white p-4 shadow-md">
         <div class="max-w-4xl mx-auto flex justify-between items-center">
             <h1 class="font-bold text-xl">Painel Administrativo - CEI Lar Betânia</h1>
-            <a href="index.html" class="text-sm bg-white/20 hover:bg-white/30 px-3 py-1.5 rounded-lg transition">Ver Mural</a>
+            <div class="flex flex-wrap items-center justify-end gap-2">
+                <a href="index.html" class="text-sm bg-white/20 hover:bg-white/30 px-3 py-1.5 rounded-lg transition">Ver Mural</a>
+                <div id="acoes-sessao" hidden class="flex flex-wrap gap-2">
+                    <button type="button" id="btn-alterar-senha" class="text-sm bg-white/20 px-3 py-1.5 rounded-lg">Alterar senha</button>
+                    <button type="button" id="btn-sair" class="text-sm bg-white/20 px-3 py-1.5 rounded-lg">Sair</button>
+                </div>
+            </div>
         </div>
     </header>
 
@@ -22,7 +35,55 @@
             class="text-lg leading-none font-semibold px-2 py-1 rounded hover:bg-black/10">×</button>
     </div>
 
-    <main class="max-w-4xl mx-auto p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+    <section id="auth-shell" class="max-w-md mx-auto p-4 sm:p-6" aria-label="Autenticação administrativa">
+        <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-5 sm:p-6 space-y-4">
+            <p id="auth-estado" class="text-sm text-gray-600" role="status" aria-live="polite">Verificando sessão administrativa...</p>
+            <div id="auth-login" hidden>
+                <h2 class="font-bold text-xl mb-2">Entrar no painel</h2>
+                <p class="text-sm text-gray-600 mb-4">Acesso exclusivo da administração do CEI.</p>
+                <form id="form-login" class="space-y-4">
+                    <div>
+                        <label for="login-senha" class="block text-sm font-semibold mb-1">Senha</label>
+                        <input id="login-senha" class="auth-field" type="password" autocomplete="current-password" required>
+                    </div>
+                    <button id="btn-entrar" type="submit" class="auth-button w-full">Entrar</button>
+                </form>
+            </div>
+            <div id="auth-bootstrap" hidden>
+                <h2 class="font-bold text-xl mb-2">Configuração inicial</h2>
+                <p class="text-sm text-gray-600 mb-4">Somente o operador autorizado pode ativar a configuração inicial no servidor. Esta tela não concede autorização.</p>
+                <form id="form-bootstrap" class="space-y-4">
+                    <div><label for="token-inicial" class="block text-sm font-semibold mb-1">Token fornecido pelo operador</label>
+                        <input id="token-inicial" type="password" class="auth-field" autocomplete="off" required></div>
+                    <div><label for="bootstrap-senha" class="block text-sm font-semibold mb-1">Nova senha administrativa</label>
+                        <input id="bootstrap-senha" type="password" class="auth-field" autocomplete="new-password" minlength="12" maxlength="128" required></div>
+                    <div><label for="bootstrap-confirmar" class="block text-sm font-semibold mb-1">Confirmar nova senha</label>
+                        <input id="bootstrap-confirmar" type="password" class="auth-field" autocomplete="new-password" minlength="12" maxlength="128" required></div>
+                    <button id="btn-criar-senha" type="submit" class="auth-button w-full">Concluir configuração autorizada</button>
+                </form>
+            </div>
+            <div id="auth-change" hidden>
+                <h2 class="font-bold text-xl mb-2">Alterar senha</h2>
+                <form id="form-alterar-senha" class="space-y-4">
+                    <div><label for="senha-atual" class="block text-sm font-semibold mb-1">Senha atual</label>
+                        <input id="senha-atual" type="password" class="auth-field" autocomplete="current-password" required></div>
+                    <div><label for="senha-nova" class="block text-sm font-semibold mb-1">Nova senha</label>
+                        <input id="senha-nova" type="password" class="auth-field" autocomplete="new-password" minlength="12" maxlength="128" required></div>
+                    <div><label for="senha-confirmar" class="block text-sm font-semibold mb-1">Confirmar nova senha</label>
+                        <input id="senha-confirmar" type="password" class="auth-field" autocomplete="new-password" minlength="12" maxlength="128" required></div>
+                    <button type="submit" id="btn-confirmar-troca" class="auth-button w-full">Salvar nova senha</button>
+                    <button type="button" id="btn-cancelar-troca" class="auth-secondary w-full">Cancelar</button>
+                </form>
+            </div>
+            <div id="auth-bloqueado" hidden class="space-y-3">
+                <h2 class="font-bold text-lg">Acesso temporariamente indisponível</h2>
+                <p class="text-sm text-gray-600">Não foi possível confirmar o estado da sessão. Nenhuma alteração será realizada até a verificação.</p>
+                <button type="button" id="btn-verificar-sessao" class="auth-secondary">Verificar sessão novamente</button>
+            </div>
+        </div>
+    </section>
+
+    <main id="admin-panel" hidden class="max-w-4xl mx-auto p-4 sm:p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
         <!-- Formulário de Nova/Edição Publicação -->
         <section class="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
             <h2 class="font-bold text-lg mb-4 text-gray-700" id="form-title">Nova Publicação</h2>
@@ -30,10 +91,9 @@
                 <input type="hidden" id="pub_id" name="pub_id">
                 
                 <div>
-                    <label class="block text-sm font-medium text-gray-600 mb-1">Senha Administrativa</label>
-                    <input type="password" id="senha_admin" name="senha_admin" required class="w-full px-3 py-2 border rounded-xl focus:ring-2 focus:ring-[#b83b43] outline-none">
-                    <button type="button" id="btn-carregar-dados" class="mt-2 w-full bg-gray-800 text-white rounded-xl px-3 py-2 text-sm font-semibold hover:bg-gray-900">Carregar turmas e publicações</button>
-                    <p id="estado-admin" role="status" aria-live="polite" class="mt-2 text-xs text-gray-500">Informe a senha para consultar os dados.</p>
+                    <p id="estado-admin" role="status" aria-live="polite" class="text-xs text-gray-500">A sessão administrativa será verificada antes de carregar os dados.</p>
+                    <button type="button" id="btn-carregar-dados" class="auth-secondary mt-2 text-sm">Atualizar listagens</button>
+                    <button type="button" id="btn-revalidar-sessao" hidden class="auth-secondary mt-2 text-sm">Revalidar sessão</button>
                 </div>
 
                 <div>
@@ -95,7 +155,7 @@
             <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
                 <h2 class="font-bold text-lg mb-4 text-gray-700">Listagem de Publicações</h2>
                 <div id="lista-publicacoes" class="space-y-3 max-h-96 overflow-y-auto pr-2">
-                    <p class="text-sm text-gray-500">Informe a senha e clique em Carregar turmas e publicações.</p>
+                    <p class="text-sm text-gray-500">Aguardando sessão administrativa...</p>
                 </div>
             </div>
         </section>
@@ -106,7 +166,7 @@
         <div class="bg-white p-6 rounded-2xl shadow-xl w-96 max-w-[90%]">
             <h3 class="font-bold text-lg mb-4">Cadastrar Nova Turma</h3>
             <input type="text" id="nova-turma-nome" class="w-full px-3 py-2 border rounded-xl mb-4 focus:ring-2 focus:ring-[#b83b43] outline-none" placeholder="Nome da Turma (Ex: Berçário)">
-            <input type="password" id="nova-turma-senha" class="w-full px-3 py-2 border rounded-xl mb-4 focus:ring-2 focus:ring-[#b83b43] outline-none" placeholder="Senha Administrativa">
+            
             <div class="flex gap-2 justify-end">
                 <button onclick="fecharModalNovaTurma()" class="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded-lg text-sm font-bold transition-colors">Cancelar</button>
                 <button onclick="salvarNovaTurma()" class="px-4 py-2 bg-[#b83b43] text-white hover:bg-[#a03037] rounded-lg text-sm font-bold transition-colors">Cadastrar</button>
@@ -116,152 +176,367 @@
 
     <script>
 
+        'use strict';
         const API_URL = window.location.origin;
-        let versaoConsulta = 0;
-        const campoSenha = document.getElementById('senha_admin');
+        const campoGeral = document.getElementById('publicacao-geral');
         const selectTurma = document.getElementById('turma_id');
         const listaPublicacoes = document.getElementById('lista-publicacoes');
         const estadoAdmin = document.getElementById('estado-admin');
-        const botaoCarregar = document.getElementById('btn-carregar-dados');
-        const campoGeral = document.getElementById('publicacao-geral');
         const notificacao = document.getElementById('notificacao');
         const textoAviso = document.getElementById('notificacao-mensagem');
         const iconeAviso = document.getElementById('notificacao-icone');
+        const csrfHeader = 'X-CSRF-Token';
+        let csrfToken = null;
+        let geracaoSessao = 0;
+        let estadoAutenticacao = 'inicial';
+        let mutacaoEmCurso = false;
         let temporizadorAviso = null;
 
+        function el(id) { return document.getElementById(id); }
+        function focar(id) { el(id)?.focus?.(); }
         function fecharAviso() {
             clearTimeout(temporizadorAviso);
             notificacao.hidden = true;
         }
-
         function notificar(mensagem, tipo = 'erro') {
             clearTimeout(temporizadorAviso);
             const sucesso = tipo === 'sucesso';
             notificacao.hidden = false;
             notificacao.setAttribute('role', sucesso ? 'status' : 'alert');
             notificacao.className = 'fixed z-[100] top-4 left-1/2 -translate-x-1/2 w-[calc(100%-2rem)] max-w-md rounded-xl border shadow-lg px-4 py-3 flex items-center gap-3 text-sm ' +
-                (sucesso ? 'bg-green-50 text-green-900 border-green-300' : 'bg-red-50 text-red-900 border-red-300');
+                (sucesso ? 'bg-green-50 text-green-900 border-green-300'
+                    : 'bg-red-50 text-red-900 border-red-300');
             iconeAviso.textContent = sucesso ? '✓' : '⚠';
             textoAviso.textContent = String(mensagem);
             temporizadorAviso = setTimeout(fecharAviso, 4500);
         }
 
+        function limparCredenciaisDigitadas() {
+            for (const id of ['login-senha', 'token-inicial', 'bootstrap-senha',
+                'bootstrap-confirmar', 'senha-atual', 'senha-nova', 'senha-confirmar']) {
+                el(id).value = '';
+            }
+        }
+        function limparDadosAdministrativos() {
+            selectTurma.innerHTML = '<option value="">Aguardando autenticação...</option>';
+            selectTurma.value = '';
+            listaPublicacoes.replaceChildren();
+            listaPublicacoes.textContent = 'Aguardando autenticação administrativa...';
+            el('form-publicacao').reset();
+            el('pub_id').value = '';
+            campoGeral.checked = false;
+            sincronizarDestino();
+            el('imagem-preservada').textContent = '';
+            el('form-title').textContent = 'Nova Publicação';
+            el('btn-submit').textContent = 'Publicar';
+            fecharModalNovaTurma();
+        }
+        function invalidarEstadoPrivado() {
+            geracaoSessao += 1;
+            csrfToken = null;
+            limparDadosAdministrativos();
+            limparCredenciaisDigitadas();
+            el('btn-revalidar-sessao').hidden = true;
+        }
+        function exibirTela(nome, mensagem) {
+            estadoAutenticacao = nome;
+            el('auth-shell').hidden = nome === 'painel';
+            el('admin-panel').hidden = nome !== 'painel';
+            el('acoes-sessao').hidden = nome !== 'painel' && nome !== 'troca';
+            for (const item of ['login', 'bootstrap', 'change', 'bloqueado']) {
+                el('auth-' + item).hidden =
+                    item !== (nome === 'troca' ? 'change' : nome);
+            }
+            el('auth-estado').textContent = mensagem || (
+                nome === 'verificando' ? 'Verificando sessão administrativa...' : '');
+            if (nome === 'login') focar('login-senha');
+            if (nome === 'bootstrap') focar('token-inicial');
+            if (nome === 'troca') focar('senha-atual');
+            if (nome === 'painel') estadoAdmin.textContent = mensagem || 'Sessão autenticada.';
+        }
+        function encerrarSessaoLocal(mensagem = 'Sua sessão terminou. Entre novamente.') {
+            invalidarEstadoPrivado();
+            exibirTela('login');
+            if (mensagem) notificar(mensagem);
+        }
+        function erroApi(status, mensagem) {
+            const erro = new Error(mensagem || 'Não foi possível concluir a operação.');
+            erro.status = status;
+            return erro;
+        }
+        async function interpretarResposta(resposta) {
+            if (resposta.status === 204) return null;
+            const json = await resposta.json().catch(() => null);
+            if (!resposta.ok) {
+                throw erroApi(resposta.status,
+                    typeof json?.erro === 'string' ? json.erro : 'Não foi possível concluir a operação.');
+            }
+            return json;
+        }
+        async function solicitar(caminho, { method = 'GET', body, protegido = false,
+            json = false, csrf = false } = {}) {
+            const snapshot = geracaoSessao;
+            if (protegido && !csrfToken) throw erroApi(401, 'Sua sessão terminou.');
+            const headers = {};
+            if (json) headers['Content-Type'] = 'application/json';
+            if (csrf) headers[csrfHeader] = csrfToken;
+            let resposta;
+            try {
+                resposta = await fetch(API_URL + caminho, {
+                    method, credentials: 'same-origin',
+                    ...(method === 'GET' ? { cache: 'no-store' } : {}),
+                    headers, ...(body === undefined ? {} : { body })
+                });
+            } catch {
+                throw erroApi(0, 'Falha de conexão. Verifique a rede e tente novamente.');
+            }
+            if (snapshot !== geracaoSessao) throw erroApi(-1, 'Resposta de sessão anterior descartada.');
+            if (protegido && resposta.status === 401) {
+                encerrarSessaoLocal();
+                throw erroApi(-1, 'Sessão encerrada.');
+            }
+            let dados;
+            try {
+                dados = await interpretarResposta(resposta);
+            } catch (erro) {
+                if (protegido && resposta.status === 403 && snapshot === geracaoSessao)
+                    el('btn-revalidar-sessao').hidden = false;
+                throw erro;
+            }
+            if (snapshot !== geracaoSessao) throw erroApi(-1, 'Resposta de sessão anterior descartada.');
+            return dados;
+        }
+        function tratarErro(erro) {
+            if (erro?.status === -1) return;
+            notificar(erro?.message || 'Não foi possível concluir a operação.');
+        }
+        function validarSenhaNova(senha, confirmacao) {
+            if (senha.length < 12 || senha.length > 128) {
+                throw erroApi(400, 'A nova senha deve ter entre 12 e 128 caracteres.');
+            }
+            if (senha !== confirmacao) throw erroApi(400, 'A confirmação da senha não confere.');
+        }
+        async function verificarEstadoInicial() {
+            const snapshot = ++geracaoSessao;
+            csrfToken = null;
+            limparDadosAdministrativos();
+            exibirTela('verificando');
+            try {
+                const sessao = await solicitar('/api/admin/auth/session');
+                if (snapshot !== geracaoSessao) return;
+                if (!sessao || sessao.autenticado !== true || typeof sessao.csrf_token !== 'string'
+                    || !sessao.csrf_token) throw erroApi(500, 'Resposta inválida de sessão.');
+                csrfToken = sessao.csrf_token;
+                exibirTela('painel');
+                await carregarPainelAdministrativo();
+            } catch (erro) {
+                if (snapshot !== geracaoSessao || erro.status === -1) return;
+                if (erro.status === 401) {
+                    invalidarEstadoPrivado();
+                    try {
+                        const versao = geracaoSessao;
+                        const status = await solicitar('/api/admin/auth/status');
+                        if (versao !== geracaoSessao) return;
+                        if (typeof status?.configurado !== 'boolean')
+                            throw erroApi(500, 'Resposta inválida de configuração.');
+                        exibirTela(status.configurado ? 'login' : 'bootstrap');
+                    } catch (falha) {
+                        if (falha.status !== -1) {
+                            exibirTela('bloqueado');
+                            tratarErro(falha);
+                        }
+                    }
+                } else {
+                    exibirTela('bloqueado');
+                    tratarErro(erro);
+                }
+            }
+        }
+        async function realizarLogin(evento) {
+            evento.preventDefault();
+            const botao = el('btn-entrar');
+            if (botao.disabled) return;
+            const senha = el('login-senha').value;
+            el('login-senha').value = '';
+            botao.disabled = true;
+            try {
+                const resultado = await solicitar('/api/admin/auth/login', {
+                    method: 'POST', json: true, body: JSON.stringify({ senha })
+                });
+                if (resultado?.autenticado !== true) throw erroApi(500, 'Resposta inválida de autenticação.');
+                // O cookie é gerido pelo navegador; a única fonte do CSRF é GET /session.
+                await verificarEstadoInicial();
+            } catch (erro) {
+                if (erro.status === -1) return;
+                if (erro.status === 401) exibirTela('login');
+                tratarErro(erro);
+            } finally {
+                botao.disabled = false;
+            }
+        }
+        async function realizarBootstrap(evento) {
+            evento.preventDefault();
+            const botao = el('btn-criar-senha');
+            if (botao.disabled) return;
+            const token_inicial = el('token-inicial').value;
+            const nova_senha = el('bootstrap-senha').value;
+            const confirmacao = el('bootstrap-confirmar').value;
+            botao.disabled = true;
+            try {
+                validarSenhaNova(nova_senha, confirmacao);
+                const dados = await solicitar('/api/admin/auth/bootstrap', {
+                    method: 'POST', json: true,
+                    body: JSON.stringify({ token_inicial, nova_senha })
+                });
+                if (dados?.configurado !== true) throw erroApi(500, 'Resposta inválida de configuração.');
+                exibirTela('login');
+                notificar('Configuração inicial concluída. Entre com sua senha.', 'sucesso');
+            } catch (erro) {
+                if (erro.status === 409) {
+                    exibirTela('login');
+                    notificar('A administração já foi configurada. Entre com sua senha.');
+                } else tratarErro(erro);
+            } finally {
+                limparCredenciaisDigitadas();
+                botao.disabled = false;
+            }
+        }
+        function abrirTrocaSenha() {
+            if (!csrfToken) return;
+            geracaoSessao++;
+            limparCredenciaisDigitadas();
+            exibirTela('troca');
+        }
+        async function realizarTrocaSenha(evento) {
+            evento.preventDefault();
+            const botao = el('btn-confirmar-troca');
+            if (botao.disabled || !csrfToken) return;
+            const senha_atual = el('senha-atual').value;
+            const nova_senha = el('senha-nova').value;
+            const confirmacao = el('senha-confirmar').value;
+            const token = csrfToken;
+            botao.disabled = true;
+            try {
+                validarSenhaNova(nova_senha, confirmacao);
+                const resposta = await fetch(API_URL + '/api/admin/auth/change-password', {
+                    method: 'POST', credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/json', [csrfHeader]: token },
+                    body: JSON.stringify({ senha_atual, nova_senha })
+                });
+                if (resposta.status === 401) {
+                    encerrarSessaoLocal();
+                    return;
+                }
+                await interpretarResposta(resposta);
+                invalidarEstadoPrivado();
+                exibirTela('login');
+                notificar('Senha alterada. Entre novamente.', 'sucesso');
+            } catch (erro) {
+                if (erro.status === 0 || erro.status >= 500 || erro instanceof TypeError) {
+                    // Não há prova de revogação se a conexão falhar.
+                    invalidarEstadoPrivado();
+                    exibirTela('bloqueado');
+                }
+                tratarErro(erro);
+            } finally {
+                limparCredenciaisDigitadas();
+                botao.disabled = false;
+            }
+        }
+        async function realizarLogout() {
+            if (!csrfToken) return;
+            const token = csrfToken;
+            geracaoSessao++;
+            limparDadosAdministrativos();
+            exibirTela('verificando', 'Encerrando sessão...');
+            try {
+                const resposta = await fetch(API_URL + '/api/admin/auth/logout', {
+                    method: 'POST', credentials: 'same-origin',
+                    headers: { [csrfHeader]: token }
+                });
+                if (resposta.status !== 401) await interpretarResposta(resposta);
+                invalidarEstadoPrivado();
+                exibirTela('login');
+                notificar('Sessão encerrada.', 'sucesso');
+            } catch (erro) {
+                invalidarEstadoPrivado();
+                exibirTela('bloqueado');
+                tratarErro(erro);
+            }
+        }
         function sincronizarDestino() {
             selectTurma.value = '';
             selectTurma.disabled = campoGeral.checked;
             selectTurma.required = !campoGeral.checked;
         }
-
-        document.addEventListener('DOMContentLoaded', () => {
-            // As consultas protegidas são iniciadas apenas por ação explícita após a senha.
-            botaoCarregar.addEventListener('click', carregarPainelAdministrativo);
-            campoGeral.addEventListener('change', sincronizarDestino);
-            document.getElementById('notificacao-fechar').addEventListener('click', fecharAviso);
-            campoSenha.addEventListener('input', () => {
-                versaoConsulta++;
-                botaoCarregar.disabled = false;
-                limparDadosAdministrativos();
-                estadoAdmin.textContent = 'Clique em Carregar dados após informar a senha.';
-            });
-        });
-
-        function limparDadosAdministrativos() {
-            selectTurma.innerHTML = '<option value="">Aguardando autenticação...</option>';
-            listaPublicacoes.textContent = 'Informe a senha e clique em Carregar dados.';
+        function garantirSessao() {
+            if (!csrfToken || estadoAutenticacao !== 'painel')
+                throw erroApi(401, 'Entre novamente para continuar.');
         }
-
-        function verificarSenha(senha) {
-            if (!senha || !senha.trim()) {
-                throw new Error('Informe a Senha Administrativa para consultar os dados.');
-            }
-        }
-
         async function carregarPainelAdministrativo() {
-            const senha = campoSenha.value;
-            const versao = ++versaoConsulta;
-            botaoCarregar.disabled = true;
-            estadoAdmin.textContent = 'Carregando dados administrativos...';
+            if (!csrfToken) return;
+            const versao = geracaoSessao;
+            estadoAdmin.textContent = 'Carregando turmas e publicações...';
+            el('btn-carregar-dados').disabled = true;
             try {
-                verificarSenha(senha);
-                await carregarTurmas(null, senha, versao);
-                if (versao !== versaoConsulta) return;
-                await carregarListaGerenciamento(senha, versao);
-                if (versao !== versaoConsulta) return;
+                await carregarTurmas(null, versao);
+                if (versao !== geracaoSessao) return;
+                await carregarListaGerenciamento(versao);
+                if (versao !== geracaoSessao) return;
                 estadoAdmin.textContent = 'Turmas e publicações carregadas.';
             } catch (erro) {
-                if (versao !== versaoConsulta) return;
-                limparDadosAdministrativos();
+                if (versao !== geracaoSessao) return;
                 estadoAdmin.textContent = erro.message;
-                notificar(erro.message);
+                tratarErro(erro);
             } finally {
-                if (versao === versaoConsulta) botaoCarregar.disabled = false;
+                el('btn-carregar-dados').disabled = false;
             }
         }
-
-        async function carregarTurmas(turmaSelecionadaId = null, senha = campoSenha.value, versao = versaoConsulta) {
-            verificarSenha(senha);
-            const resposta = await fetch(API_URL + '/api/turmas', {
-                headers: { 'Authorization': senha }
-            });
-            if (resposta.status === 401) throw new Error('Senha administrativa inválida ou não autorizada.');
-            if (!resposta.ok) throw new Error('Não foi possível carregar as turmas.');
-            const turmas = await resposta.json();
-            if (!Array.isArray(turmas)) throw new Error('Resposta inválida ao consultar turmas.');
-            if (versao !== versaoConsulta) return;
-
+        async function carregarTurmas(turmaSelecionadaId = null, versao = geracaoSessao) {
+            const turmas = await solicitar('/api/turmas', { protegido: true });
+            if (!Array.isArray(turmas)) throw erroApi(500, 'Resposta inválida ao consultar turmas.');
+            if (versao !== geracaoSessao) return;
             selectTurma.innerHTML = '<option value="">Selecione uma turma</option>';
             turmas.forEach(turma => {
                 const opcao = document.createElement('option');
                 opcao.value = turma.id;
                 opcao.textContent = turma.nome_turma;
                 opcao.dataset.token = turma.codigo_acesso;
-                if (turmaSelecionadaId != null && String(turma.id) === String(turmaSelecionadaId)) {
+                if (turmaSelecionadaId != null && String(turma.id) === String(turmaSelecionadaId))
                     opcao.selected = true;
-                }
                 selectTurma.appendChild(opcao);
             });
         }
-
-        async function carregarListaGerenciamento(senha = campoSenha.value, versao = versaoConsulta) {
-            verificarSenha(senha);
+        async function carregarListaGerenciamento(versao = geracaoSessao) {
             listaPublicacoes.textContent = 'Carregando publicações...';
-            const resposta = await fetch(API_URL + '/api/admin/publicacoes', {
-                headers: { 'Authorization': senha }
-            });
-            if (resposta.status === 401) throw new Error('Senha administrativa inválida ou não autorizada.');
-            if (!resposta.ok) throw new Error('Não foi possível carregar as publicações.');
-            const publicacoes = await resposta.json();
-            if (!Array.isArray(publicacoes)) throw new Error('Resposta inválida ao consultar publicações.');
-            if (versao !== versaoConsulta) return;
-
+            const publicacoes = await solicitar('/api/admin/publicacoes', { protegido: true });
+            if (!Array.isArray(publicacoes)) throw erroApi(500, 'Resposta inválida ao consultar publicações.');
+            if (versao !== geracaoSessao) return;
             listaPublicacoes.replaceChildren();
-            if (publicacoes.length === 0) {
+            if (!publicacoes.length) {
                 listaPublicacoes.textContent = 'Nenhuma publicação cadastrada.';
                 return;
             }
-
             publicacoes.forEach(pub => {
-                const el = document.createElement('div');
-                el.className = 'bg-gray-50 p-3 rounded-lg border border-gray-200 flex flex-col md:flex-row justify-between items-start md:items-center gap-3';
+                const linha = document.createElement('div');
+                linha.className = 'bg-gray-50 p-3 rounded-lg border border-gray-200 flex flex-col md:flex-row justify-between items-start md:items-center gap-3';
                 const detalhes = document.createElement('div');
                 detalhes.className = 'flex-1 truncate pr-2 w-full';
-
                 const tipo = document.createElement('span');
                 tipo.className = 'text-[10px] font-bold text-[#b83b43] bg-red-50 border border-red-100 px-2 py-0.5 rounded-full uppercase tracking-wider';
                 tipo.textContent = pub.tipo || '';
                 const titulo = document.createElement('p');
                 titulo.className = 'text-sm font-semibold mt-1 truncate text-gray-800';
                 titulo.textContent = pub.titulo || '';
-                const informacoes = document.createElement('p');
-                informacoes.className = 'text-xs text-gray-500 mt-0.5';
-                const destino = pub.turma_id === null ? 'Geral' : (pub.nome_turma || 'Turma #' + pub.turma_id);
-                informacoes.textContent = (pub.data || '') + ' · ' + destino;
+                const info = document.createElement('p');
+                info.className = 'text-xs text-gray-500 mt-0.5';
+                info.textContent = (pub.data || '') + ' · ' +
+                    (pub.turma_id === null ? 'Geral' : (pub.nome_turma || 'Turma #' + pub.turma_id));
                 detalhes.appendChild(tipo);
                 detalhes.appendChild(titulo);
-                detalhes.appendChild(informacoes);
-
-                const acoes = document.createElement('div');
-                acoes.className = 'flex gap-2 w-full md:w-auto';
+                detalhes.appendChild(info);
+                const botoes = document.createElement('div');
+                botoes.className = 'flex gap-2 w-full md:w-auto';
                 const editar = document.createElement('button');
                 editar.type = 'button';
                 editar.className = 'flex-1 md:flex-none text-xs bg-white border border-gray-300 hover:bg-gray-50 px-3 py-1.5 rounded-lg font-medium text-gray-700 transition-colors shadow-sm';
@@ -272,144 +547,143 @@
                 excluir.className = 'flex-1 md:flex-none text-xs bg-red-50 border border-red-200 hover:bg-red-100 px-3 py-1.5 rounded-lg font-medium text-red-700 transition-colors shadow-sm';
                 excluir.textContent = 'Excluir';
                 excluir.addEventListener('click', () => deletarPublicacao(pub.id));
-                acoes.appendChild(editar);
-                acoes.appendChild(excluir);
-                el.appendChild(detalhes);
-                el.appendChild(acoes);
-                listaPublicacoes.appendChild(el);
+                botoes.appendChild(editar);
+                botoes.appendChild(excluir);
+                linha.appendChild(detalhes);
+                linha.appendChild(botoes);
+                listaPublicacoes.appendChild(linha);
             });
         }
-
         function abrirModalTurma() {
-            document.getElementById('modal-turma').classList.remove('hidden');
+            try { garantirSessao(); el('modal-turma').classList.remove('hidden'); focar('nova-turma-nome'); }
+            catch (erro) { tratarErro(erro); }
         }
-
         function fecharModalNovaTurma() {
-            document.getElementById('modal-turma').classList.add('hidden');
-            document.getElementById('nova-turma-nome').value = '';
-            document.getElementById('nova-turma-senha').value = '';
+            el('modal-turma').classList.add('hidden');
+            el('nova-turma-nome').value = '';
         }
-
         async function salvarNovaTurma() {
-            const nome_turma = document.getElementById('nova-turma-nome').value.trim();
-            const senha = document.getElementById('nova-turma-senha').value || campoSenha.value;
-            if (!nome_turma) return notificar('Digite o nome da turma.');
-            if (!senha.trim()) return notificar('Insira a Senha Administrativa para cadastrar a turma.');
-
+            if (mutacaoEmCurso) return;
             try {
-                const resposta = await fetch(API_URL + '/api/turmas', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': senha },
+                garantirSessao();
+                const nome_turma = el('nova-turma-nome').value.trim();
+                if (!nome_turma) return notificar('Digite o nome da turma.');
+                mutacaoEmCurso = true;
+                const resultado = await solicitar('/api/turmas', {
+                    method: 'POST', protegido: true, csrf: true, json: true,
                     body: JSON.stringify({ nome_turma })
                 });
-                const resultado = await resposta.json();
-                if (!resposta.ok) return notificar(resultado.erro || 'Erro ao cadastrar turma.');
-
-                campoSenha.value = senha;
                 fecharModalNovaTurma();
                 notificar('Turma cadastrada com sucesso!', 'sucesso');
-                const versao = ++versaoConsulta;
-                await carregarTurmas(resultado.id, senha, versao);
-                if (versao !== versaoConsulta) return;
-                await carregarListaGerenciamento(senha, versao);
+                const versao = geracaoSessao;
+                await carregarTurmas(resultado?.id, versao);
+                if (versao === geracaoSessao) await carregarListaGerenciamento(versao);
                 estadoAdmin.textContent = 'Turmas e publicações carregadas.';
-            } catch (erro) {
-                estadoAdmin.textContent = erro.message;
-                notificar('Falha ao atualizar o painel após cadastrar turma.');
-            }
+            } catch (erro) { tratarErro(erro); }
+            finally { mutacaoEmCurso = false; }
         }
-
         function copiarLinkTurma() {
-            const opcao = selectTurma.options[selectTurma.selectedIndex];
-            if (!opcao || !opcao.value) return notificar('Selecione uma turma válida no dropdown primeiro.');
-            const token = opcao.dataset.token;
-            if (!token) return notificar('Token da turma não disponível.');
-
-            const link = API_URL + '/?token=' + encodeURIComponent(token);
-            return navigator.clipboard.writeText(link).then(() => {
-                notificar('Link da turma copiado com sucesso!', 'sucesso');
-            }).catch(() => {
-                notificar('Não foi possível copiar o link.');
-            });
+            try {
+                garantirSessao();
+                const opcao = selectTurma.options[selectTurma.selectedIndex];
+                if (!opcao || !opcao.value) return notificar('Selecione uma turma válida primeiro.');
+                const codigo = opcao.dataset.token;
+                if (!codigo) return notificar('Código da turma não disponível.');
+                return navigator.clipboard.writeText(API_URL + '/?token=' +
+                    encodeURIComponent(codigo)).then(() => {
+                    notificar('Link da turma copiado com sucesso!', 'sucesso');
+                }).catch(() => notificar('Não foi possível copiar o link.'));
+            } catch (erro) { tratarErro(erro); }
         }
-
         function editarPublicacao(pub) {
-            
-            document.getElementById('pub_id').value = pub.id;
-            document.getElementById('titulo').value = pub.titulo || '';
-            document.getElementById('descricao').value = pub.descricao || '';
-            document.getElementById('data').value = pub.data || '';
-            document.getElementById('tipo').value = pub.tipo || '';
-            campoGeral.checked = pub.turma_id === null;
-            sincronizarDestino();
-            if (!campoGeral.checked) selectTurma.value = String(pub.turma_id);
-            document.getElementById('imagem-preservada').textContent = pub.imagem_url
-                ? 'Imagem atual preservada se nenhuma nova for enviada.' : '';
-            document.getElementById('form-title').textContent = 'Editar Publicação';
-            document.getElementById('btn-submit').textContent = 'Salvar Alterações';
-            window.scrollTo({ top: 0, behavior: 'smooth' });
+            try {
+                garantirSessao();
+                el('pub_id').value = pub.id;
+                el('titulo').value = pub.titulo || '';
+                el('descricao').value = pub.descricao || '';
+                el('data').value = pub.data || '';
+                el('tipo').value = pub.tipo || '';
+                campoGeral.checked = pub.turma_id === null;
+                sincronizarDestino();
+                if (!campoGeral.checked) selectTurma.value = String(pub.turma_id);
+                el('imagem-preservada').textContent = pub.imagem_url
+                    ? 'Imagem atual preservada se nenhuma nova for enviada.' : '';
+                el('form-title').textContent = 'Editar Publicação';
+                el('btn-submit').textContent = 'Salvar Alterações';
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            } catch (erro) { tratarErro(erro); }
         }
-
         async function deletarPublicacao(id) {
-            const senha = campoSenha.value;
-            if (!senha.trim()) return notificar('Insira a Senha Administrativa para excluir.');
-            if (!confirm('Deseja realmente excluir esta publicação permanentemente?')) return;
+            if (mutacaoEmCurso) return;
             try {
-                const resposta = await fetch(API_URL + '/api/publicacoes/' + encodeURIComponent(id), {
-                    method: 'DELETE',
-                    headers: { 'Authorization': senha }
+                garantirSessao();
+                if (!confirm('Deseja realmente excluir esta publicação permanentemente?')) return;
+                mutacaoEmCurso = true;
+                await solicitar('/api/publicacoes/' + encodeURIComponent(id), {
+                    method: 'DELETE', protegido: true, csrf: true
                 });
-                if (!resposta.ok) {
-                    const erro = await resposta.json();
-                    return notificar(erro.erro || 'Erro ao excluir a publicação.');
-                }
                 notificar('Publicação excluída com sucesso!', 'sucesso');
-                await carregarListaGerenciamento(senha);
-            } catch (erro) {
-                notificar(erro.message || 'Erro de conexão ao tentar excluir.');
-            }
+                await carregarListaGerenciamento();
+            } catch (erro) { tratarErro(erro); }
+            finally { mutacaoEmCurso = false; }
         }
-
-        document.getElementById('form-publicacao').addEventListener('submit', async (evento) => {
+        async function salvarPublicacao(evento) {
             evento.preventDefault();
-            const formulario = evento.target;
-            const dados = new FormData(formulario);
-            const senha = campoSenha.value;
-            const id = dados.get('pub_id');
-            const turmaSelecionada = selectTurma.value;
-            const geral = campoGeral.checked;
-            const edicao = Boolean(id);
-            const url = API_URL + '/api/publicacoes' + (edicao ? '/' + encodeURIComponent(id) : '');
-            dados.delete('senha_admin');
-            dados.delete('publicacao_geral');
-            dados.set('destino', geral ? 'geral' : 'turma');
-            if (geral) dados.delete('turma_id');
-            if (!senha.trim()) return notificar('Informe a Senha Administrativa.');
-            if (!geral && !turmaSelecionada) return notificar('Selecione uma turma para a publicação.');
-
+            if (mutacaoEmCurso) return;
             try {
-                const resposta = await fetch(url, {
-                    method: edicao ? 'PUT' : 'POST',
-                    headers: { 'Authorization': senha },
-                    body: dados
+                garantirSessao();
+                const formulario = evento.target;
+                const dados = new FormData(formulario);
+                const id = dados.get('pub_id');
+                const turmaSelecionada = selectTurma.value;
+                const geral = campoGeral.checked;
+                const edicao = Boolean(id);
+                dados.delete('pub_id');
+                dados.delete('publicacao_geral');
+                dados.delete('senha_admin');
+                dados.set('destino', geral ? 'geral' : 'turma');
+                if (geral) dados.delete('turma_id');
+                if (!geral && !turmaSelecionada)
+                    return notificar('Selecione uma turma para a publicação.');
+                mutacaoEmCurso = true;
+                await solicitar('/api/publicacoes' + (edicao ? '/' + encodeURIComponent(id) : ''), {
+                    method: edicao ? 'PUT' : 'POST', protegido: true, csrf: true, body: dados
                 });
-                const resultado = await resposta.json();
-                if (!resposta.ok) return notificar(resultado.erro || 'Falha na operação');
-
-                notificar(edicao ? 'Publicação atualizada com sucesso!' : 'Publicação cadastrada com sucesso!', 'sucesso');
+                notificar(edicao ? 'Publicação atualizada com sucesso!' :
+                    'Publicação cadastrada com sucesso!', 'sucesso');
                 formulario.reset();
-                document.getElementById('pub_id').value = '';
-                campoSenha.value = senha;
+                el('pub_id').value = '';
                 campoGeral.checked = false;
                 sincronizarDestino();
                 if (turmaSelecionada) selectTurma.value = turmaSelecionada;
-                document.getElementById('imagem-preservada').textContent = '';
-                document.getElementById('form-title').textContent = 'Nova Publicação';
-                document.getElementById('btn-submit').textContent = 'Publicar';
-                await carregarListaGerenciamento(senha);
-            } catch (erro) {
-                notificar(erro.message || 'Erro ao conectar com o servidor local.');
-            }
+                el('imagem-preservada').textContent = '';
+                el('form-title').textContent = 'Nova Publicação';
+                el('btn-submit').textContent = 'Publicar';
+                await carregarListaGerenciamento();
+            } catch (erro) { tratarErro(erro); }
+            finally { mutacaoEmCurso = false; }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            el('notificacao-fechar').addEventListener('click', fecharAviso);
+            el('publicacao-geral').addEventListener('change', sincronizarDestino);
+            el('form-login').addEventListener('submit', realizarLogin);
+            el('form-bootstrap').addEventListener('submit', realizarBootstrap);
+            el('form-alterar-senha').addEventListener('submit', realizarTrocaSenha);
+            el('form-publicacao').addEventListener('submit', salvarPublicacao);
+            el('btn-alterar-senha').addEventListener('click', abrirTrocaSenha);
+            el('btn-cancelar-troca').addEventListener('click', verificarEstadoInicial);
+            el('btn-sair').addEventListener('click', realizarLogout);
+            el('btn-carregar-dados').addEventListener('click', carregarPainelAdministrativo);
+            el('btn-revalidar-sessao').addEventListener('click', () => {
+                el('btn-revalidar-sessao').hidden = true;
+                verificarEstadoInicial();
+            });
+            el('btn-verificar-sessao').addEventListener('click', verificarEstadoInicial);
+            el('modal-turma').addEventListener('keydown', event => {
+                if (event.key === 'Escape') fecharModalNovaTurma();
+            });
+            verificarEstadoInicial();
         });
 
     </script>

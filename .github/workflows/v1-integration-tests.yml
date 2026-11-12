@@ -42,6 +42,8 @@ jobs:
           node --check tests/admin-http.integration.test.js
           node --check tests/admin-browser.e2e.cjs
           node --check tests/lote2-integration.e2e.cjs
+          node --check tests/lote3-frontend-browser.e2e.cjs
+          node --check tests/infra-auth-ops.test.js
 
       - name: Executar testes existentes (HTTP real e SQLite descartável)
         run: npm test
@@ -60,6 +62,45 @@ jobs:
       # Obrigatório em push para V1 e PR destinado a V1. Preservar os testes anteriores.
       - name: Aceite Lote 2 - API SQLite Chromium imagens e notificações
         run: node --test tests/lote2-integration.e2e.cjs
+
+      # A suíte Lote 3 existe na V1, mas não estava incluída no workflow permanente.
+      - name: Aceite Frontend Lote 3 - PWA, imagens, cache e token
+        run: node --test tests/lote3-frontend-browser.e2e.cjs
+
+      # Os PRs independentes não contêm ainda os dois módulos da funcionalidade.
+      # O gate deve FALHAR explicitamente, nunca ficar verde com auth ignorada.
+      # Na composição Backend + Frontend + DevOps ambos devem existir e passar.
+      - name: Gate de testes de autenticação HTTP e migração
+        shell: bash
+        run: |
+          shopt -s nullglob
+          candidatos=(tests/*auth*.test.js)
+          casos=()
+          for arquivo in "${candidatos[@]}"; do
+            # Testes DevOps de backup não são substitutos de autenticação HTTP.
+            if [[ "$arquivo" == tests/infra-* ]]; then continue; fi
+            casos+=("$arquivo")
+          done
+          if (( ${#casos[@]} == 0 )); then
+            echo "::error::Suíte Backend auth HTTP/SQLite ausente. Integração Backend pendente; não aprovar como cobertura auth."
+            exit 1
+          fi
+          printf 'Executando teste(s) Backend auth: %s\n' "${casos[*]}"
+          node --test "${casos[@]}"
+
+      - name: Gate de autenticação Chromium - login, sessão e CSRF
+        shell: bash
+        run: |
+          shopt -s nullglob
+          casos=(tests/*auth*.e2e.cjs)
+          if (( ${#casos[@]} == 0 )); then
+            echo "::error::Suíte Frontend auth Chromium ausente. Integração Frontend pendente; não aprovar como cobertura auth."
+            exit 1
+          fi
+          printf 'Executando E2E auth: %s\n' "${casos[*]}"
+          node --test "${casos[@]}"
+
+      # Não registrar valores de credenciais nem publicar artefatos da sessão.
 
       - name: Verificar ausência de banco temporário no workspace
         if: always()

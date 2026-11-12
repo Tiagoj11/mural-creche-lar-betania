@@ -1,18 +1,20 @@
 require('dotenv').config();
 const express = require('express');
-const cors = require('cors');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
 const multer = require('multer');
 const crypto = require('crypto');
 const db = require('./database');
+const { createAuth } = require('./admin-auth');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(cors());
-app.use(express.json());
+// CORS administrativo é sempre same-origin, sem permissões wildcard.
+// Proxy confiável somente quando a conexão física vier do loopback local.
+app.set('trust proxy', 'loopback');
+app.use(express.json({ limit: '16kb' }));
 
 app.use(express.urlencoded({ extended: true }));
 
@@ -23,17 +25,11 @@ function gerarHashUnico() {
     return crypto.randomBytes(3).toString('hex');
 }
 
-/**
- * Middleware de Autenticação Administrativa
- * Verifica se a senha enviada no header 'Authorization' confere com o .env
- */
-const autenticarAdmin = (req, res, next) => {
-    const authHeader = req.headers['authorization'];
-    if (!authHeader || authHeader !== process.env.ADMIN_SECRET_KEY) {
-        return res.status(401).json({ erro: 'Acesso não autorizado.' });
-    }
-    next();
-};
+// Nenhum caminho administrativo usa Authorization/ADMIN_SECRET_KEY como bypass.
+const auth = createAuth(db);
+app.use('/api', auth.noStore);
+app.get('/admin.html', auth.noStore, (req, res, next) => next());
+auth.register(app);
 
 /**
  * Configuração do Multer para armazenamento local de imagens.
@@ -142,7 +138,7 @@ function descartarImagemNova(req) {
  * GET /api/turmas
  * Retorna a lista de todas as turmas cadastradas (para popular o select dinâmico no admin).
  */
-app.get('/api/turmas', autenticarAdmin, (req, res) => {
+app.get('/api/turmas', auth.authenticated, (req, res) => {
     const sql = `SELECT id, nome_turma, codigo_acesso FROM Turmas ORDER BY nome_turma ASC`;
     db.all(sql, [], (err, rows) => {
         if (err) {
@@ -157,7 +153,7 @@ app.get('/api/turmas', autenticarAdmin, (req, res) => {
  * POST /api/turmas
  * Protegido. Cadastra uma nova turma com código de acesso hash único.
 */
-app.post('/api/turmas', autenticarAdmin, (req, res) => {
+app.post('/api/turmas', auth.mutate, (req, res) => {
     const { nome_turma } = req.body;
     if (!nome_turma) {
         return res.status(400).json({ erro: 'O nome da turma é obrigatório.' });
@@ -184,7 +180,7 @@ app.post('/api/turmas', autenticarAdmin, (req, res) => {
  * GET /api/admin/publicacoes
  * Retorna todas as publicações para gerenciamento, sem expor códigos de acesso.
  */
-app.get('/api/admin/publicacoes', autenticarAdmin, (req, res) => {
+app.get('/api/admin/publicacoes', auth.authenticated, (req, res) => {
     const sql = `
         SELECT p.id, p.titulo, p.descricao, p.data, p.tipo,
                p.imagem_url, p.turma_id, t.nome_turma
@@ -236,7 +232,7 @@ app.get('/api/publicacoes/token/:codigo', (req, res) => {
  * POST /api/publicacoes
  * Protegido. Cria uma nova publicação vinculada a uma turma existente (via turma_id).
  */
-app.post('/api/publicacoes', autenticarAdmin, upload.single('imagem'), (req, res) => {
+app.post('/api/publicacoes', auth.mutate, upload.single('imagem'), (req, res) => {
     const { titulo, descricao, data, tipo } = req.body || {};
     if (![titulo, data, tipo].every(campo => typeof campo === 'string' && campo.trim())) {
         descartarImagemNova(req);
@@ -266,7 +262,7 @@ app.post('/api/publicacoes', autenticarAdmin, upload.single('imagem'), (req, res
  * PUT /api/publicacoes/:id
  * Protegido. Edita uma publicação existente (atualizando dados e opcionalmente a imagem).
  */
-app.put('/api/publicacoes/:id', autenticarAdmin, upload.single('imagem'), (req, res) => {
+app.put('/api/publicacoes/:id', auth.mutate, upload.single('imagem'), (req, res) => {
     const { titulo, descricao, data, tipo } = req.body || {};
     if (![titulo, data, tipo].every(campo => typeof campo === 'string' && campo.trim())) {
         descartarImagemNova(req);
@@ -305,7 +301,7 @@ app.put('/api/publicacoes/:id', autenticarAdmin, upload.single('imagem'), (req, 
  * DELETE /api/publicacoes/:id
  * Protegido. Remove permanentemente uma publicação pelo ID.
  */
-app.delete('/api/publicacoes/:id', autenticarAdmin, (req, res) => {
+app.delete('/api/publicacoes/:id', auth.mutate, (req, res) => {
     const { id } = req.params;
     const sql = `DELETE FROM Publicacoes WHERE id = ?`;
 
@@ -350,8 +346,15 @@ app.use((err, req, res, next) => {
     return res.status(500).json({ erro: 'Erro interno do servidor. Consulte o terminal.' });
 });
 
-// Inicialização do Servidor
-app.listen(PORT, () => {
-    console.log(`Servidor rodando em http://localhost:${PORT}`);
-    console.log(`Pasta de imagens: ${uploadDir}`);
+// Fail-closed: um banco sem migração AUTH explícita não disponibiliza rotas.
+auth.assertSchema().then(() => {
+    // Node exposto somente ao loopback; publicar HTTPS é responsabilidade do Caddy.
+    app.listen(PORT, '127.0.0.1', () => {
+        console.log(`Servidor HTTP local iniciado na porta ${PORT}`);
+        console.log('Diretório externo de uploads configurado.');
+    });
+}).catch(err => {
+    console.error('Autenticação indisponível: migração offline obrigatória (' + err.message + ')');
+    process.exitCode = 1;
+    db.close(() => {});
 });
