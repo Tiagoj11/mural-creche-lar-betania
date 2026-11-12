@@ -232,7 +232,7 @@ test('auth: migração e contrato HTTP reais em SQLite temporário', async t => 
             json:{ senha_atual:initialPass, nova_senha:changedPass } });
         assert.equal(changed.status,204);
         assert.equal(changed.raw,'');
-        assert.ok(changed.headers.get('set-cookie')?.includes('Max-Age=0'));
+        assert.match(changed.headers.get('set-cookie') || '', /(?:Max-Age=0|Expires=Thu, 01 Jan 1970)/);
         error(await api(h, '/api/admin/auth/session', { cookie:c1 }),401);
         error(await api(h, '/api/admin/auth/session', { cookie:c2 }),401);
         error(await api(h, '/api/admin/auth/login',
