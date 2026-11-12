@@ -15,17 +15,12 @@ const crypto = require('node:crypto');
 const { spawn } = require('node:child_process');
 const sqlite3 = require('sqlite3');
 const { chromium } = require('playwright');
-const authCompat = require('./helpers/admin-auth-compat.cjs');
 
 const sourceRoot = path.resolve(__dirname, '..');
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'mural-v1-browser-'));
 const uploads = fs.mkdtempSync(path.join(os.tmpdir(), 'mural-v1-uploads-'));
 const secret = crypto.randomBytes(24).toString('hex');
 const injection = '<img src=x onerror="window.__executouXss=true">';
-const authMode = authCompat.hasAuth(sourceRoot);
-const bootstrapToken = crypto.randomBytes(32).toString('hex');
-const externalState = fs.mkdtempSync(path.join(os.tmpdir(), 'mural-v1-auth-db-'));
-const dbFile = authMode ? path.join(externalState, 'banco.db') : path.join(temp, 'banco.db');
 let server;
 let db;
 let browser;
@@ -61,20 +56,13 @@ async function startServer() {
         path.join(temp, 'public', 'admin.html'));
     fs.symlinkSync(path.join(sourceRoot, 'node_modules'),
         path.join(temp, 'node_modules'), 'dir');
-    if (authMode) await authCompat.migrateFixture(sourceRoot, temp, dbFile);
     assert.notEqual(path.join(temp, 'banco.db'), path.join(sourceRoot, 'banco.db'));
 
     base = 'http://127.0.0.1:' + await freePort();
     server = spawn(process.execPath, ['server.js'], {
         cwd: temp,
         env: { ...process.env, PORT: new URL(base).port, ADMIN_SECRET_KEY: secret,
-            NODE_ENV: 'test', MURAL_UPLOAD_DIR: uploads,
-            ...(authMode ? {
-                MURAL_DB_PATH: dbFile, ADMIN_PUBLIC_ORIGIN: base,
-                ADMIN_BOOTSTRAP_ENABLED: 'true',
-                ADMIN_BOOTSTRAP_UNTIL: String(Date.now() + 10 * 60 * 1000),
-                ADMIN_BOOTSTRAP_TOKEN: bootstrapToken
-            } : {}) },
+            NODE_ENV: 'test', MURAL_UPLOAD_DIR: uploads },
         stdio: ['ignore', 'pipe', 'pipe']
     });
     server.stdout.on('data', chunk => { processOutput += chunk.toString().slice(0, 1000); });
@@ -86,17 +74,16 @@ async function startServer() {
             throw new Error('Express terminou antes do teste (verificar dependências e inicialização)');
         }
         try {
-            const res = authMode
-                ? await fetch(base + '/api/admin/auth/status', { signal: AbortSignal.timeout(500) })
-                : await fetch(base + '/api/turmas', {
-                    headers: { Authorization: secret }, signal: AbortSignal.timeout(500)
-                });
+            const res = await fetch(base + '/api/turmas', {
+                headers: { Authorization: secret },
+                signal: AbortSignal.timeout(500)
+            });
             if (res.status === 200) { ready = true; break; }
         } catch { /* Aguarda SQLite inicializar. */ }
         await new Promise(resolve => setTimeout(resolve, 100));
     }
     assert.ok(ready, 'Servidor Express/SQLite indisponível');
-    if (authMode) await authCompat.bootstrap(base, bootstrapToken, secret);
+    const dbFile = path.join(temp, 'banco.db');
     assert.ok(fs.existsSync(dbFile), 'SQLite deve ser criado no diretório temporário');
     db = await new Promise((resolve, reject) => {
         const connection = new sqlite3.Database(dbFile, err =>
@@ -131,7 +118,6 @@ async function cleanup() {
     }
     fs.rmSync(temp, { recursive: true, force: true });
     fs.rmSync(uploads, { recursive: true, force: true });
-    fs.rmSync(externalState, { recursive: true, force: true });
 }
 
 test('V1: painel real em Chromium com Express e SQLite temporários', { timeout: 90000 }, async t => {
@@ -152,8 +138,7 @@ test('V1: painel real em Chromium com Express e SQLite temporários', { timeout:
             requests.push({
                 pathname: url.pathname.replace(/\/token\/[^/]+/, '/token/[redacted]'),
                 method: request.method(), hasAuth: Boolean(header),
-                validAuth: header === secret,
-                hasCsrf: Boolean(request.headers()['x-csrf-token'])
+                validAuth: header === secret
             });
         });
         page.on('dialog', async dialog => {
@@ -178,52 +163,28 @@ test('V1: painel real em Chromium com Express e SQLite temporários', { timeout:
         await t.test('não solicita listagens protegidas antes de autenticar', async () => {
             assert.equal(requests.filter(r => r.method === 'GET'
                 && ['/api/turmas', '/api/admin/publicacoes'].includes(r.pathname)).length, 0);
-            if (authMode) {
-                await $('#auth-login').waitFor({ state: 'visible' });
-                assert.equal(await $('#admin-panel').isVisible(), false);
-            } else assert.match(await status.innerText(), /Informe a senha/);
+            assert.match(await status.innerText(), /Informe a senha/);
         });
 
         await t.test('senha inválida: 401 e nenhum dado sensível no painel', async () => {
-            if (authMode) {
-                await $('#login-senha').fill('credencial-incorreta');
-                const denied = page.waitForResponse(r => r.url() === base +
-                    '/api/admin/auth/login' && r.status() === 401);
-                await $('#btn-entrar').click();
-                await denied;
-                assert.equal(await $('#admin-panel').isVisible(), false);
-                assert.equal(requests.some(r => r.pathname === '/api/admin/publicacoes'), false);
-            } else {
-                await $('#senha_admin').fill('credencial-incorreta');
-                await load.click();
-                await page.waitForFunction(() => document.querySelector('#estado-admin')
-                    .textContent.includes('inválida'));
-                assert.match(await status.innerText(), /inválida/);
-                assert.equal(await $('#turma_id option').count(), 1);
-                assert.equal(requests.some(r => r.pathname === '/api/turmas'
-                    && r.hasAuth && !r.validAuth), true);
-                assert.equal(requests.some(r => r.pathname === '/api/admin/publicacoes'), false);
-            }
+            await $('#senha_admin').fill('credencial-incorreta');
+            await load.click();
+            await page.waitForFunction(() => document.querySelector('#estado-admin')
+                .textContent.includes('inválida'));
+            assert.match(await status.innerText(), /inválida/);
+            assert.equal(await $('#turma_id option').count(), 1);
+            assert.equal(requests.some(r => r.pathname === '/api/turmas'
+                && r.hasAuth && !r.validAuth), true);
+            assert.equal(requests.some(r => r.pathname === '/api/admin/publicacoes'), false);
         });
 
         await t.test('senha correta: Authorization nos dois GETs e Geral/turmas', async () => {
-            if (authMode) {
-                await $('#login-senha').fill(secret);
-                await $('#btn-entrar').click();
-                await $('#admin-panel').waitFor({ state: 'visible' });
-                await row('Evento para todos').waitFor();
-                assert.ok(requests.some(r => r.method === 'GET' &&
-                    r.pathname === '/api/turmas' && !r.hasAuth));
-                assert.ok(requests.some(r => r.method === 'GET' &&
-                    r.pathname === '/api/admin/publicacoes' && !r.hasAuth));
-            } else {
-                await $('#senha_admin').fill(secret);
-                await load.click();
-                await page.waitForFunction(() => document.querySelector('#estado-admin')
-                    .textContent.includes('carregadas'));
-                assert.ok(requests.some(r => r.method === 'GET' && r.pathname === '/api/turmas' && r.validAuth));
-                assert.ok(requests.some(r => r.method === 'GET' && r.pathname === '/api/admin/publicacoes' && r.validAuth));
-            }
+            await $('#senha_admin').fill(secret);
+            await load.click();
+            await page.waitForFunction(() => document.querySelector('#estado-admin')
+                .textContent.includes('carregadas'));
+            assert.ok(requests.some(r => r.method === 'GET' && r.pathname === '/api/turmas' && r.validAuth));
+            assert.ok(requests.some(r => r.method === 'GET' && r.pathname === '/api/admin/publicacoes' && r.validAuth));
             assert.equal(await $('#turma_id option').count(), 3);
             assert.equal(await row('Evento para todos').count(), 1);
             assert.match(await row('Evento para todos').innerText(), /Geral/);
@@ -243,34 +204,20 @@ test('V1: painel real em Chromium com Express e SQLite temporários', { timeout:
             assert.equal(await page.evaluate(() => window.__executouXss === true), false);
         });
 
-        await t.test('senha incorreta ou atual inválida não autoriza operações', async () => {
-            if (authMode) {
-                await $('#btn-alterar-senha').click();
-                await $('#senha-atual').fill('senha-atual-incorreta');
-                await $('#senha-nova').fill('outra-senha-ficticia-12345');
-                await $('#senha-confirmar').fill('outra-senha-ficticia-12345');
-                const denied = page.waitForResponse(r => r.url() === base +
-                    '/api/admin/auth/change-password' && r.status() === 403);
-                await $('#btn-confirmar-troca').click();
-                await denied;
-                await $('#btn-cancelar-troca').click();
-                await $('#admin-panel').waitFor({ state: 'visible' });
-                assert.equal(await row('Evento para todos').count(), 1);
-            } else {
-                await $('#senha_admin').fill('outra-senha-incorreta');
-                assert.equal(await $('#turma_id option').count(), 1);
-                assert.equal(await row('Evento para todos').count(), 0);
-                await $('#senha_admin').fill(secret);
-                await load.click();
-                await page.waitForFunction(() => document.querySelector('#estado-admin')
-                    .textContent.includes('carregadas'));
-            }
+        await t.test('troca de senha limpa dados administrativos antigos', async () => {
+            await $('#senha_admin').fill('outra-senha-incorreta');
+            assert.equal(await $('#turma_id option').count(), 1);
+            assert.equal(await row('Evento para todos').count(), 0);
+            await $('#senha_admin').fill(secret);
+            await load.click();
+            await page.waitForFunction(() => document.querySelector('#estado-admin')
+                .textContent.includes('carregadas'));
         });
 
         await t.test('cadastra turma, rejeita duplicidade e preserva código', async () => {
             await page.getByTitle('Cadastrar nova turma').click();
             await $('#nova-turma-nome').fill('Turma Nova');
-            if (!authMode) await $('#nova-turma-senha').fill(secret);
+            await $('#nova-turma-senha').fill(secret);
             await page.getByRole('button', { name: 'Cadastrar', exact: true }).click();
             await page.waitForFunction(() => Array.from(document.querySelectorAll('#turma_id option'))
                 .some(option => option.textContent === 'Turma Nova'));
@@ -278,7 +225,7 @@ test('V1: painel real em Chromium com Express e SQLite temporários', { timeout:
 
             await page.getByTitle('Cadastrar nova turma').click();
             await $('#nova-turma-nome').fill('Turma Nova');
-            if (!authMode) await $('#nova-turma-senha').fill(secret);
+            await $('#nova-turma-senha').fill(secret);
             const duplicateResponse = page.waitForResponse(response =>
                 response.url() === base + '/api/turmas' &&
                 response.request().method() === 'POST' && response.status() === 400);
@@ -322,7 +269,7 @@ test('V1: painel real em Chromium com Express e SQLite temporários', { timeout:
             await page.getByRole('button', { name: 'Publicar', exact: true }).click();
             await row('Publicação temporária').waitFor();
             assert.equal(requests.some(r => r.pathname === '/api/publicacoes'
-                && r.method === 'POST' && (authMode ? (!r.hasAuth && r.hasCsrf) : r.validAuth)), true);
+                && r.method === 'POST' && r.validAuth), true);
 
             await row('Publicação temporária').getByRole('button', { name: 'Editar' }).click();
             assert.equal(await $('#titulo').inputValue(), 'Publicação temporária');
@@ -331,14 +278,14 @@ test('V1: painel real em Chromium com Express e SQLite temporários', { timeout:
             await row('Publicação editada').waitFor();
             assert.equal(await row('Publicação temporária').count(), 0);
             assert.equal(requests.some(r => /^\/api\/publicacoes\/[0-9]+$/.test(r.pathname)
-                && r.method === 'PUT' && (authMode ? (!r.hasAuth && r.hasCsrf) : r.validAuth)), true);
+                && r.method === 'PUT' && r.validAuth), true);
 
             await row('Publicação editada').getByRole('button', { name: 'Excluir' }).click();
             await page.waitForFunction(() => !document.querySelector('#lista-publicacoes')
                 .textContent.includes('Publicação editada'));
             assert.ok(dialogs.some(d => d.type === 'confirm'));
             assert.equal(requests.some(r => /^\/api\/publicacoes\/[0-9]+$/.test(r.pathname)
-                && r.method === 'DELETE' && (authMode ? (!r.hasAuth && r.hasCsrf) : r.validAuth)), true);
+                && r.method === 'DELETE' && r.validAuth), true);
         });
     } finally {
         await cleanup();
