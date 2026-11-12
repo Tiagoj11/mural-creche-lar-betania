@@ -1,10 +1,26 @@
-# EXEMPLO, NÃO PUBLICAR sem autorização. Substituir pelo domínio REAL aprovado.
-# Caddy só obtém TLS automático quando DNS e portas 80/443 estão corretos.
+# MODELO PARA REVISÃO — NÃO ATIVAR SEM AUTORIZAÇÃO.
+# Substituir mural.example.invalid por hostname REAL aprovado no gate de deploy.
+# Caddy deve ser o único ingresso público (80/443), HTTPS automático;
+# Node só em loopback:3000. Firewall/NSG DEVEM bloquear 3000 externamente.
+# Caddy encaminha X-Forwarded-* derivados da conexão recebida, não do cliente.
 mural.example.invalid {
     encode zstd gzip
-    # Evita cache HTTP acidental de conteúdo com token/credenciais.
+
+    # Conteúdo administrativo e URLs com tokens nunca devem ficar em cache.
+    # A política é intencionalmente conservadora para TODO o mural.
     header Cache-Control "no-store"
     header X-Content-Type-Options "nosniff"
     header Referrer-Policy "no-referrer"
-    reverse_proxy 127.0.0.1:3000
+
+    reverse_proxy 127.0.0.1:3000 {
+        header_up Host {host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Host {host}
+        header_up X-Forwarded-Proto https
+    }
 }
+# Exigir no Backend: trust proxy restrito ao hop loopback efetivamente usado;
+# Origin canônico HTTPS exato nas mutações e bootstrap/login; cookies Secure,
+# HttpOnly, SameSite=Strict. Não confiar em cabeçalhos spoofados de acesso direto.
+# Bloquear acesso direto à porta 3000 via bind + firewall/NSG independentemente.
+# Testar TLS/redirect/headers/cookie reais só em deploy autorizado.

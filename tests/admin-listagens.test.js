@@ -48,11 +48,12 @@ function setup() {
     };
     const app = {
         use() {},
+        set() {},
         get(route, ...handlers) { routes.set('GET ' + route, handlers); },
         post(route, ...handlers) { routes.set('POST ' + route, handlers); },
         put(route, ...handlers) { routes.set('PUT ' + route, handlers); },
         delete(route, ...handlers) { routes.set('DELETE ' + route, handlers); },
-        listen(_port, cb) { cb(); }
+        listen(_port, host, cb) { if (typeof host === 'function') host(); else cb(); }
     };
     const express = () => app;
     express.json = () => () => {};
@@ -61,7 +62,26 @@ function setup() {
     const multer = () => ({ single: () => (_req, _res, next) => next() });
     multer.diskStorage = () => ({});
     multer.MulterError = class extends Error {};
+    const fakeAuth = {
+        register() {}, noStore(_req, _res, next) { next(); },
+        assertSchema() { return { then(fn) { fn(); return { catch() {} }; } }; },
+        authenticated(req, res, next) {
+            if (req.headers.cookie !== 'mural_admin_sid=mock-sid')
+                return res.status(401).json({ erro: 'Sessão inexistente ou expirada.' });
+            next();
+        },
+        mutate(req, res, next) {
+            return fakeAuth.authenticated(req, res, () => {
+                if (req.headers.origin !== 'http://localhost' ||
+                    req.headers['x-csrf-token'] !== 'mock-csrf') {
+                    return res.status(403).json({ erro: 'Requisição não autorizada.' });
+                }
+                next();
+            });
+        }
+    };
     const deps = { express, multer, path, './database': db,
+        './admin-auth': { createAuth: () => fakeAuth },
         os: { homedir: () => path.resolve(__dirname, '..', '..') },
         fs: { mkdirSync() {} }, cors: () => () => {},
         dotenv: { config() {} }, crypto: require('node:crypto') };
@@ -74,8 +94,13 @@ function setup() {
     function call(method, route, authorization, body = {}, params = {}) {
         const handlers = routes.get(method + ' ' + route);
         assert.ok(handlers, route);
-        const req = { headers: {}, body, params };
-        if (authorization !== undefined) req.headers.authorization = authorization;
+        const req = { headers: {}, body, params,
+            get(name) { return this.headers[name.toLowerCase()]; } };
+        if (authorization === secret) {
+            req.headers.cookie = 'mural_admin_sid=mock-sid';
+            req.headers.origin = 'http://localhost';
+            req.headers['x-csrf-token'] = 'mock-csrf';
+        } else if (authorization !== undefined) req.headers.cookie = 'invalido';
         const res = {
             statusCode: 200, data: null,
             status(code) { this.statusCode = code; return this; },
@@ -91,7 +116,7 @@ function setup() {
     return { call, routes, get chamadas() { return chamadas; } };
 }
 
-test('ambas as listagens exigem senha administrativa', () => {
+test('ambas as listagens exigem sessão administrativa', () => {
     const a = setup();
     for (const route of ['/api/turmas', '/api/admin/publicacoes']) {
         for (const senha of [undefined, 'invalida']) {
@@ -104,7 +129,7 @@ test('ambas as listagens exigem senha administrativa', () => {
     assert.equal(a.chamadas, 0);
 });
 
-test('turmas autorizadas preservam os códigos e IDs', () => {
+test('turmas com sessão válida preservam os códigos e IDs', () => {
     const res = setup().call('GET', '/api/turmas', secret);
     assert.equal(res.statusCode, 200);
     assert.equal(res.data.length, 2);
@@ -125,7 +150,7 @@ test('admin lista publicações gerais e específicas sem códigos de turma', ()
     assert.doesNotMatch(JSON.stringify(res.data), /codigo_acesso|aaa111|bbb222/);
 });
 
-test('POST de turma mantém autenticação, geração e duplicidade', () => {
+test('POST de turma mantém sessão, geração e duplicidade', () => {
     const a = setup();
     assert.equal(a.call('POST', '/api/turmas', undefined, { nome_turma: 'C' }).statusCode, 401);
     const novo = a.call('POST', '/api/turmas', secret, { nome_turma: 'C' });
