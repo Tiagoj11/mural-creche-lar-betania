@@ -37,7 +37,7 @@ async function portFree() {
     await new Promise(resolve => n.close(resolve));
     return port;
 }
-async function fixture() {
+async function fixture({ bootstrapEnabled = true } = {}) {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mural-auth-test-'));
     const app = path.join(tmp, 'checkout');
     const ext = path.join(tmp, 'persistente');
@@ -70,7 +70,7 @@ async function fixture() {
     fs.mkdirSync(uploadDir);
     const server = spawn(process.execPath, ['server.js'], {
         cwd: app, env: { ...env, PORT: String(port), ADMIN_PUBLIC_ORIGIN: origin,
-            ADMIN_BOOTSTRAP_ENABLED: 'true', ADMIN_BOOTSTRAP_UNTIL: String(Date.now() + 10 * 60 * 1000),
+            ADMIN_BOOTSTRAP_ENABLED: String(bootstrapEnabled), ADMIN_BOOTSTRAP_UNTIL: String(Date.now() + 10 * 60 * 1000),
             ADMIN_BOOTSTRAP_TOKEN: token, MURAL_UPLOAD_DIR: uploadDir, NODE_ENV: 'test' },
         stdio: ['ignore', 'pipe', 'pipe']
     });
@@ -263,6 +263,16 @@ test('auth: migração e contrato HTTP reais em SQLite temporário', async t => 
         assert.equal(logout.status,204);
         assert.equal(logout.raw,'');
         error(await api(h, '/api/admin/auth/session', { cookie:fresh.cookie }),401);
+        const firstRotation = await api(h, '/api/admin/auth/login', {method:'POST',
+            origin:h.origin, json:{senha:changedPass}});
+        assert.equal(firstRotation.status, 200);
+        const secondRotation = await api(h, '/api/admin/auth/login', {method:'POST',
+            origin:h.origin, cookie:firstRotation.cookie, json:{senha:changedPass}});
+        assert.equal(secondRotation.status, 200);
+        assert.notEqual(firstRotation.cookie, secondRotation.cookie);
+        error(await api(h, '/api/admin/auth/session', {cookie:firstRotation.cookie}),401);
+        assert.equal((await api(h, '/api/admin/auth/session',
+            {cookie:secondRotation.cookie})).status,200);
         // 5 falhas por origem em 15 minutos, depois 429 com Retry-After inteiro.
         for (let i=0;i<5;i++) error(await api(h, '/api/admin/auth/login',
             { method:'POST', origin:h.origin, json:{ senha:'errada-'+i } }),401);
@@ -272,5 +282,30 @@ test('auth: migração e contrato HTTP reais em SQLite temporário', async t => 
         assert.match(limited.headers.get('retry-after'), /^\d+$/);
         assert.equal((await h.sql('PRAGMA user_version')).user_version,101);
         assert.ok(!fs.existsSync(path.join(h.app,'banco.db')));
+    } finally { await h.close(); }
+});
+
+test('bootstrap fechado por padrão e migrador recusa versão parcial sem tocar dados', async () => {
+    const h = await fixture({ bootstrapEnabled:false });
+    try {
+        assert.equal((await api(h,'/api/admin/auth/status')).data.configurado,false);
+        error(await api(h,'/api/admin/auth/bootstrap', {
+            method:'POST',origin:h.origin,json:{token_inicial:token,nova_senha:initialPass}
+        }),403);
+        assert.equal((await h.sql('SELECT COUNT(*) AS n FROM AdminCredencial')).n,0);
+        const copy = path.join(h.tmp,'migracao-incompativel.db');
+        fs.copyFileSync(h.dbPath,copy);
+        const conn = await new Promise((resolve,reject)=>{
+            const db=new sqlite3.Database(copy,sqlite3.OPEN_READWRITE,err=>err?reject(err):resolve(db));
+        });
+        await execSql(conn,'PRAGMA user_version=0');
+        await new Promise((resolve,reject)=>conn.close(err=>err?reject(err):resolve()));
+        const bad=spawnSync(process.execPath,['scripts/migrate-admin-auth.js','--db',copy],
+            {cwd:h.app,encoding:'utf8',timeout:15000});
+        assert.notEqual(bad.status,0);
+        assert.match(bad.stderr,/Versão\/esquema desconhecido/);
+        const intact = await h.sql('SELECT COUNT(*) AS n FROM Turmas');
+        assert.equal(intact.n,2);
+        assert.equal((await h.sql('PRAGMA user_version')).user_version,101);
     } finally { await h.close(); }
 });
