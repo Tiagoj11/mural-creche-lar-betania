@@ -54,6 +54,25 @@ function resolverCaminhoBanco() {
     } catch {
         throw new Error('MURAL_DB_PATH: permissões insuficientes para leitura e gravação.');
     }
+
+    // Um arquivo vazio existe, mas OPEN_READWRITE não impede que o SQLite o
+    // inicialize ao executar CREATE TABLE. Recusar antes de abrir a conexão.
+    if (dados.size < 100) {
+        throw new Error('MURAL_DB_PATH: banco SQLite vazio ou incompleto; inicialização externa deve ser explícita.');
+    }
+    const cabecalho = Buffer.alloc(16);
+    let fd;
+    try {
+        fd = fs.openSync(informado, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0));
+        if (fs.readSync(fd, cabecalho, 0, cabecalho.length, 0) !== cabecalho.length ||
+            !cabecalho.equals(Buffer.from('SQLite format 3\0'))) {
+            throw new Error('arquivo não SQLite');
+        }
+    } catch {
+        throw new Error('MURAL_DB_PATH: arquivo não é um banco SQLite válido.');
+    } finally {
+        if (fd !== undefined) fs.closeSync(fd);
+    }
     return informado;
 }
 
@@ -67,13 +86,46 @@ const db = new sqlite3.Database(dbPath, modo, (err) => {
         console.error('Erro ao abrir o SQLite:', err.code || 'falha de acesso.');
         process.exit(1);
     }
-    console.log(caminhoConfigurado
-        ? 'Conectado ao SQLite externo configurado.'
-        : 'Conectado ao SQLite local legado (banco.db).');
+    if (!caminhoConfigurado) console.log('Conectado ao SQLite local legado (banco.db).');
 });
 
 db.serialize(() => {
     db.run(`PRAGMA foreign_keys = ON;`);
+
+    if (caminhoConfigurado) {
+        // No modo externo, somente validação: NUNCA criar ou modificar o esquema.
+        const recusar = (motivo) => {
+            console.error('MURAL_DB_PATH: banco externo inválido (' + motivo + ').');
+            process.exit(1);
+        };
+        db.get('PRAGMA quick_check', (err, row) => {
+            if (err || !row || row.quick_check !== 'ok') recusar('integridade');
+        });
+        const camposObrigatorios = {
+            Turmas: ['id', 'nome_turma', 'codigo_acesso'],
+            Publicacoes: ['id', 'titulo', 'descricao', 'data', 'tipo', 'imagem_url', 'turma_id']
+        };
+        for (const [tabela, campos] of Object.entries(camposObrigatorios)) {
+            db.all('PRAGMA table_info("' + tabela + '")', (err, rows) => {
+                if (err || !rows || !campos.every(campo => rows.some(coluna => coluna.name === campo))) {
+                    recusar('esquema ' + tabela);
+                }
+            });
+        }
+        db.all('PRAGMA foreign_key_list("Publicacoes")', (err, rows) => {
+            if (err || !rows || !rows.some(fk => fk.from === 'turma_id' && fk.table === 'Turmas')) {
+                recusar('relacionamento de turma');
+            }
+        });
+        db.get('PRAGMA foreign_key_check', (err, row) => {
+            if (err || row) recusar('referências');
+        });
+        db.get('SELECT COUNT(*) AS total FROM Turmas', (err) => {
+            if (err) recusar('consulta de turmas');
+            console.log('Conectado ao SQLite externo validado.');
+        });
+        return;
+    }
 
     db.run(`
         CREATE TABLE IF NOT EXISTS Turmas (
