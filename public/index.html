@@ -4,6 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Mural Creche Lar Betânia</title>
+<meta name="theme-color" content="#b83b43">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="192x192" href="/assets/pwa-icon-192.png">
+<link rel="apple-touch-icon" href="/assets/pwa-icon-192.png">
 <script src="https://cdn.tailwindcss.com"></script>
 <style>
 :root {
@@ -115,6 +119,16 @@ function switchTab(tabName) {
     window.scrollTo(0, 0);
 }
 </script>
+    <!-- Instalação: somente em contexto seguro; nunca inclui token no escopo/start_url. -->
+    <script>
+    if ('serviceWorker' in navigator && window.isSecureContext) {
+        window.addEventListener('load', () => {
+            navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => {
+                // O mural online permanece funcional mesmo se o SW não puder registrar.
+            });
+        });
+    }
+    </script>
     <!-- Script principal da aplicação -->
     <script src="app.js"></script>
 </body>
