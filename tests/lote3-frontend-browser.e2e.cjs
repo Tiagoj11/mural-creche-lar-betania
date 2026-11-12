@@ -114,8 +114,19 @@ test('Lote 3: Chromium PWA localhost e quatro proporções sem cache sensível',
                 ]) {
                     await page.locator(aba).click();
                     await page.locator(secao).waitFor({ state: 'visible' });
-                    const fotosVisiveis = page.locator(secao + ' article img');
-                    for (const img of await fotosVisiveis.all()) {
+                    if (secao === '#sec-geral') {
+                        // Força o lazy-load do arquivo ausente e exige seu tratamento;
+                        // não tenta decodificar uma imagem removida pelo onerror.
+                        await page.locator('#sec-geral article').last().scrollIntoViewIfNeeded();
+                        await page.locator('#sec-geral img[src="/uploads/ausente.png"]')
+                            .waitFor({ state: 'detached' });
+                    }
+                    const formatosDaAba = secao === '#sec-geral'
+                        ? ['vertical'] : ['horizontal', 'quadrada', 'panoramica'];
+                    for (const formato of formatosDaAba) {
+                        const img = page.locator(secao + ' article')
+                            .filter({ has: page.locator('h2', { hasText: formato }) })
+                            .locator('img');
                         await img.scrollIntoViewIfNeeded();
                         await img.evaluate(node => node.decode());
                     }
