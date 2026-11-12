@@ -2,7 +2,7 @@
 
 /**
  * Lote 2 - acceptance E2E for a COMBINED Backend+Frontend checkout.
- * NOT part of npm test / baseline V1 CI. Manual CI opt-in only.
+ * Executado obrigatoriamente no CI V1 e PRs; preserva casos legados e sessão auth.
  * Real Express, isolated SQLite/uploads, real Chromium; no API/DOM mocks.
  */
 const { test } = require('node:test');
@@ -15,6 +15,7 @@ const net = require('node:net');
 const { spawn } = require('node:child_process');
 const sqlite3 = require('sqlite3');
 const { chromium } = require('playwright');
+const authCompat = require('./helpers/admin-auth-compat.cjs');
 
 const project = path.resolve(__dirname, '..');
 const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'mural-lote2-e2e-'));
@@ -22,6 +23,11 @@ const uploads = fs.mkdtempSync(path.join(os.tmpdir(), 'mural-lote2-upload-ext-')
 const secret = crypto.randomBytes(32).toString('hex');
 const date = '2026-11-11';
 const malicious = '<img src=x onerror="window.__muralXss=1">';
+const authMode = authCompat.hasAuth(project);
+const bootstrapToken = crypto.randomBytes(32).toString('hex');
+const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mural-lote2-auth-state-'));
+const dbPath = authMode ? path.join(stateDir, 'banco.db') : path.join(workspace, 'banco.db');
+let adminSession = null;
 const image = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jB3sAAAAASUVORK5CYII=', 'base64');
 let server, database, browser, base;
 let capturedOutput = '';
@@ -46,7 +52,16 @@ async function port() {
 }
 async function request(route, options = {}) {
     const headers = {};
-    if (options.admin) headers.Authorization = secret;
+    if (options.admin) {
+        if (authMode) {
+            assert.ok(adminSession, 'Sessão auth descartável não foi criada');
+            headers.Cookie = adminSession.cookie;
+            if (options.method && options.method !== 'GET') {
+                headers.Origin = base;
+                headers['X-CSRF-Token'] = adminSession.csrf;
+            }
+        } else headers.Authorization = secret;
+    }
     let body;
     if (options.form) {
         body = new FormData();
@@ -75,11 +90,16 @@ async function start() {
         fs.copyFileSync(path.join(project, 'public', name), path.join(workspace, 'public', name));
     }
     fs.symlinkSync(path.join(project, 'node_modules'), path.join(workspace, 'node_modules'), 'dir');
+    if (authMode) await authCompat.migrateFixture(project, workspace, dbPath);
     base = 'http://127.0.0.1:' + await port();
     server = spawn(process.execPath, ['server.js'], {
         cwd: workspace,
         env: { ...process.env, NODE_ENV: 'test', PORT: new URL(base).port,
-            ADMIN_SECRET_KEY: secret, MURAL_UPLOAD_DIR: uploads },
+            ADMIN_SECRET_KEY: secret, MURAL_UPLOAD_DIR: uploads,
+            ...(authMode ? { MURAL_DB_PATH: dbPath, ADMIN_PUBLIC_ORIGIN: base,
+                ADMIN_BOOTSTRAP_ENABLED: 'true',
+                ADMIN_BOOTSTRAP_UNTIL: String(Date.now() + 10 * 60 * 1000),
+                ADMIN_BOOTSTRAP_TOKEN: bootstrapToken } : {}) },
         stdio: ['ignore', 'pipe', 'pipe']
     });
     const capture = chunk => {
@@ -93,13 +113,22 @@ async function start() {
         assert.ok(server.exitCode === null && server.signalCode === null,
             'Express encerrou antes de inicializar (verificar MURAL_UPLOAD_DIR e dependências)');
         try {
-            const response = await request('/api/turmas', { admin: true });
-            if (response.status === 200) { alive = true; break; }
+            if (authMode) {
+                const response = await request('/api/admin/auth/status');
+                if (response.status === 200) { alive = true; break; }
+            } else {
+                const response = await request('/api/turmas', { admin: true });
+                if (response.status === 200) { alive = true; break; }
+            }
         } catch { /* Aguardar startup. */ }
         await sleep(100);
     }
     assert.ok(alive, 'Express/SQLite não iniciou em até 10 segundos');
-    const filepath = path.join(workspace, 'banco.db');
+    if (authMode) {
+        await authCompat.bootstrap(base, bootstrapToken, secret);
+        adminSession = await authCompat.login(base, secret);
+    }
+    const filepath = dbPath;
     assert.ok(fs.existsSync(filepath));
     database = await new Promise((resolve, reject) => {
         const instance = new sqlite3.Database(filepath, err =>
@@ -128,6 +157,7 @@ async function shutdown() {
     }
     fs.rmSync(workspace, { recursive: true, force: true });
     fs.rmSync(uploads, { recursive: true, force: true });
+    fs.rmSync(stateDir, { recursive: true, force: true });
 }
 function publication(form = {}) {
     return {
@@ -301,11 +331,19 @@ test('Lote 2 - integração combinada real: API/SQLite/Chromium/uploads', { time
         await page.addStyleTag({ content: '.hidden { display: none !important; }' });
 
         await t.test('Chromium: checkbox Geral limpa/desabilita Turma e exige nova escolha', async () => {
-            const password = page.locator('#senha_admin');
-            await password.fill(secret);
-            await page.locator('#btn-carregar-dados').click();
-            await page.waitForFunction(() =>
-                document.querySelector('#estado-admin')?.textContent.includes('carregadas'));
+            if (authMode) {
+                await page.locator('#auth-login').waitFor({ state: 'visible' });
+                await page.locator('#login-senha').fill(secret);
+                await page.locator('#btn-entrar').click();
+                await page.locator('#admin-panel').waitFor({ state: 'visible' });
+                await page.locator('#turma_id option').last().waitFor();
+            } else {
+                const password = page.locator('#senha_admin');
+                await password.fill(secret);
+                await page.locator('#btn-carregar-dados').click();
+                await page.waitForFunction(() =>
+                    document.querySelector('#estado-admin')?.textContent.includes('carregadas'));
+            }
             const checkbox = page.getByRole('checkbox', { name: /Publicação geral/i });
             const team = page.locator('#turma_id');
             await team.selectOption({ label: 'Alfa E2E' });
