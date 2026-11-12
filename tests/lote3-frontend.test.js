@@ -185,9 +185,10 @@ test('imagem conserva proporção e limite de altura; erro remove imagem quebrad
         assert.match(image.style.maxHeight, /vh/);
         assert.match(image.className, /object-contain/);
         assert.doesNotMatch(image.className, /object-cover/);
-        assert.equal(typeof image.events.error, 'function');
-        image.events.error();
+        assert.equal(typeof image.onerror, 'function');
+        image.onerror();
         assert.equal(image.removed, true);
+        assert.equal(image.onerror, null);
     }
 });
 
