@@ -12,6 +12,7 @@ const sqlite3 = require('sqlite3');
 const root = path.resolve(__dirname, '..');
 const secret = 'senha-ficticia-de-integracao-' + process.pid;
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'mural-cei-http-'));
+const appDir = path.join(temp, 'checkout');
 let child;
 let database;
 let base;
@@ -68,15 +69,16 @@ function errorJson(response, status) {
     assert.doesNotMatch(JSON.stringify(response.body), /codigo_acesso|aaaaaa|bbbbbb/);
 }
 async function start() {
+    fs.mkdirSync(appDir);
     for (const file of ['server.js', 'database.js', 'admin-auth.js']) {
-        fs.copyFileSync(path.join(root, file), path.join(temp, file));
+        fs.copyFileSync(path.join(root, file), path.join(appDir, file));
     }
-    fs.mkdirSync(path.join(temp, 'scripts'), { recursive: true });
+    fs.mkdirSync(path.join(appDir, 'scripts'), { recursive: true });
     fs.copyFileSync(path.join(root, 'scripts', 'migrate-admin-auth.js'),
-        path.join(temp, 'scripts', 'migrate-admin-auth.js'));
-    fs.mkdirSync(path.join(temp, 'public', 'uploads'), { recursive: true });
-    fs.symlinkSync(path.join(root, 'node_modules'), path.join(temp, 'node_modules'), 'dir');
-    assert.notEqual(path.join(root, 'banco.db'), path.join(temp, 'banco.db'));
+        path.join(appDir, 'scripts', 'migrate-admin-auth.js'));
+    fs.mkdirSync(path.join(appDir, 'public', 'uploads'), { recursive: true });
+    fs.symlinkSync(path.join(root, 'node_modules'), path.join(appDir, 'node_modules'), 'dir');
+    assert.notEqual(path.join(root, 'banco.db'), path.join(appDir, 'banco.db'));
     const port = await choosePort();
     base = 'http://127.0.0.1:' + port;
     const dataDir = path.join(temp, 'data');
@@ -92,10 +94,11 @@ async function start() {
     }));
     await new Promise((resolve, reject) => setupDb.close(err => err ? reject(err) : resolve()));
     const migration = spawnSync(process.execPath, ['scripts/migrate-admin-auth.js', '--db', dbPath],
-        { cwd: temp, encoding:'utf8', timeout:10000 });
+        { cwd: appDir, encoding:'utf8', timeout:10000 });
     assert.equal(migration.status, 0, migration.stderr);
     child = spawn(process.execPath, ['server.js'], {
-        cwd: temp, env: { ...process.env, PORT: String(port), MURAL_DB_PATH: dbPath,
+        cwd: appDir, env: { ...process.env, PORT: String(port), MURAL_DB_PATH: dbPath,
+            MURAL_UPLOAD_DIR: path.join(temp, 'uploads'),
             ADMIN_PUBLIC_ORIGIN: base, ADMIN_BOOTSTRAP_ENABLED: 'true',
             ADMIN_BOOTSTRAP_UNTIL: String(Date.now() + 600000),
             ADMIN_BOOTSTRAP_TOKEN: 'token-ficticio-' + 'a'.repeat(48) },
@@ -116,7 +119,7 @@ async function start() {
     }
     assert.ok(ready, 'Express + SQLite não iniciaram em 10 s: ' + serverLogs);
     assert.ok(fs.existsSync(dbPath), 'SQLite externo temporário criado');
-    assert.ok(!fs.existsSync(path.join(temp, 'banco.db')));
+    assert.ok(!fs.existsSync(path.join(appDir, 'banco.db')));
     const boot = await http('/api/admin/auth/bootstrap', { method:'POST',
         json:{ token_inicial:'token-ficticio-' + 'a'.repeat(48), nova_senha:secret } });
     assert.equal(boot.status, 201, JSON.stringify(boot.body));
