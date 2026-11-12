@@ -37,9 +37,9 @@ abrir uma janela operacional sem essa autorização.
   `Origin` HTTPS exato, orçamento de tentativas e inserção singleton transacional.
   `status.configurado=false` **não** concede permissão.
 - `.env.example` apresenta `ADMIN_BOOTSTRAP_ENABLED=false` e
-  `ADMIN_BOOTSTRAP_WINDOW_MINUTES=15` apenas como **nomes de configuração
-  propostos**. Backend deve confirmar os nomes/implementá-los e invalidar
-  server-side o deadline ANTES de usá-los em operação. Variável `false` no
+  `ADMIN_BOOTSTRAP_UNTIL=<EPOCH_MILISSEGUNDOS>` como nomes confirmados no
+  PR Backend #20. O Backend deve recusar deadline ausente, passado ou a mais de
+  15 minutos do início do processo; a variável `false` no
   exemplo **não é controle de segurança sozinho**.
 - **Nunca versionar ou comunicar** valor real de `ADMIN_BOOTSTRAP_TOKEN`;
   segredos são provisionados diretamente via console/SSH autorizado no arquivo
