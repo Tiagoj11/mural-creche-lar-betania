@@ -158,8 +158,9 @@ test('Sessão administrativa: Chromium real, Express e SQLite fictícios', {time
             await $('#bootstrap-senha').fill(password);
             await $('#bootstrap-confirmar').fill(password);
             await $('#btn-criar-senha').click();
-            await page.waitForResponse(r=>r.url().endsWith('/api/admin/auth/bootstrap')&&r.status()===403)
-                .catch(()=>{}); // A resposta pode ter chegado antes do watcher; a UI é o oráculo.
+            await page.waitForFunction(()=>document.querySelector('#notificacao-mensagem')
+                .textContent.includes('Não autorizada') ||
+                document.querySelector('#notificacao-mensagem').textContent.includes('Não autorizado'));
             assert.equal(await $('#admin-panel').isHidden(),true);
             await $('#token-inicial').fill(bootstrapToken);
             await $('#bootstrap-senha').fill(password);
@@ -172,7 +173,8 @@ test('Sessão administrativa: Chromium real, Express e SQLite fictícios', {time
         await t.test('401 login inválido e login correto único campo, listagem automática',async()=>{
             await $('#login-senha').fill('senha-incorreta');
             await $('#btn-entrar').click();
-            await $('#auth-login').waitFor({state:'visible'});
+            await page.waitForFunction(()=>!document.querySelector('#btn-entrar').disabled
+                && document.querySelector('#notificacao-mensagem').textContent.includes('Credenciais inválidas'));
             assert.equal(await $('#login-senha').inputValue(),'');
             await $('#login-senha').fill(password);
             await $('#btn-entrar').click();
@@ -269,7 +271,7 @@ test('Sessão administrativa: Chromium real, Express e SQLite fictícios', {time
             assert.notEqual(otherCsrf,await page.evaluate(()=>csrfToken));
             await $('#btn-sair').click();
             await $('#auth-login').waitFor({state:'visible'});
-            assert.equal(await $('#lista-publicacoes').innerText(),
+            assert.equal(await $('#lista-publicacoes').textContent(),
                 'Aguardando autenticação administrativa...');
             assert.equal(await $('#turma_id option').count(),1);
             assert.equal(await $('#admin-panel').isHidden(),true);
