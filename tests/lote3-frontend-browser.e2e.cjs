@@ -59,7 +59,7 @@ function servidorDescartavel() {
             return res.end(svg);
         }
         // Caminhos públicos existentes, sem acesso fora de public/.
-        const target = path.resolve(publicRoot, '.' + url.pathname);
+        const target = path.resolve(publicRoot, '.' + (url.pathname === '/' ? '/index.html' : url.pathname));
         if (!target.startsWith(publicRoot + path.sep) ||
             !fs.existsSync(target) || !fs.statSync(target).isFile()) {
             res.writeHead(404); return res.end();
@@ -105,6 +105,10 @@ test('Lote 3: Chromium PWA localhost e quatro proporções sem cache sensível',
             for (const [width, height] of [[320, 640], [375, 760], [430, 850], [1280, 900]]) {
                 await page.setViewportSize({ width, height });
                 await page.locator('#sec-geral img').first().waitFor();
+                for (const img of await page.locator('#sec-geral article img, #conteudo-turma article img').all()) {
+                    await img.scrollIntoViewIfNeeded();
+                    await img.evaluate(node => node.decode());
+                }
                 const entries = await page.locator('#sec-geral article, #conteudo-turma article')
                     .evaluateAll(articles => articles.flatMap(article => {
                         const img = article.querySelector('img');
