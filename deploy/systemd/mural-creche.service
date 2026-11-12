@@ -1,0 +1,31 @@
+# EXEMPLO: instalar SOMENTE após autorização de deploy e confirmação dos caminhos.
+# Instalação planejada: /etc/systemd/system/mural-creche.service
+[Unit]
+Description=Mural CEI Lar Betânia - Node/Express
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=mural
+Group=mural
+WorkingDirectory=/opt/mural-creche/current
+Environment=NODE_ENV=production
+EnvironmentFile=/etc/mural-creche/mural.env
+ExecStart=/usr/bin/node /opt/mural-creche/current/server.js
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/srv/mural-creche/state /srv/mural-creche/uploads
+RestrictSUIDSGID=true
+
+# Aplicar somente após verificação de suporte do kernel/systemd na VM autorizada.
+# Caddy deve receber tráfego externo; NÃO expor a porta Express 3000 no NSG/firewall.
+
+[Install]
+WantedBy=multi-user.target

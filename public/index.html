@@ -4,6 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Mural Creche Lar Betânia</title>
+<meta name="theme-color" content="#b83b43">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="192x192" href="/assets/pwa-icon-192.png">
+<link rel="apple-touch-icon" href="/assets/pwa-icon-192.png">
 <script src="https://cdn.tailwindcss.com"></script>
 <style>
 :root {
@@ -16,26 +20,16 @@ body {
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     -webkit-tap-highlight-color: transparent;
 }
-#toast {
-    visibility: hidden;
-    min-width: 250px;
-    background-color: #333;
-    color: #fff;
-    text-align: center;
-    border-radius: 8px;
-    padding: 16px;
-    position: fixed;
-    z-index: 50;
-    left: 50%;
-    bottom: 30px;
-    transform: translateX(-50%);
-    opacity: 0;
-    transition: opacity 0.3s, bottom 0.3s;
-}
-#toast.show {
-    visibility: visible;
-    opacity: 1;
-    bottom: 40px;
+/* Imagens de publicações: proporção natural, centralizadas e sem cortes. */
+.imagem-mural {
+    display: block;
+    margin-left: auto;
+    margin-right: auto;
+    width: auto;
+    height: auto;
+    max-width: 100%;
+    max-height: min(56vh, 26rem);
+    object-fit: contain;
 }
 ::-webkit-scrollbar {
     display: none;
@@ -75,80 +69,32 @@ body {
 <main class="mt-28 px-4 max-w-md mx-auto space-y-4">
 
     <!-- Seção 1: GERAL (Avisos e mural geral) -->
-    <section id="sec-geral" class="space-y-4">
-        <article class="bg-white rounded-2xl shadow-sm overflow-hidden border border-gray-100">
-            <div class="h-48 bg-gray-200 relative">
-                <img src="https://images.unsplash.com/photo-1511895426328-dc8714191300?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80" alt="Festa Junina" class="w-full h-full object-cover">
-                <span class="absolute top-3 left-3 bg-[#f07167] text-white text-xs font-bold px-2 py-1 rounded-full shadow-md">
-                    Evento
-                </span>
-            </div>
-            <div class="p-4">
-                <p class="text-xs text-gray-400 font-medium mb-1">15 de Junho, 2026</p>
-                <h2 class="font-bold text-lg mb-2" style="color: var(--cor-primaria);">Festa Junina Solidária</h2>
-                <p class="text-sm text-gray-600 line-clamp-3">Venha participar da nossa festa! Teremos comidas típicas, brincadeiras e muita diversão para as crianças.</p>
-            </div>
-        </article>
-
-        <article class="bg-white rounded-2xl shadow-sm overflow-hidden border border-l-4" style="border-left-color: var(--cor-primaria);">
-            <div class="p-4">
-                <div class="flex justify-between items-start mb-2">
-                    <span class="bg-red-50 text-[#b83b43] text-xs font-bold px-2 py-1 rounded-full">Aviso Geral</span>
-                    <p class="text-xs text-gray-400 font-medium">Ontem</p>
-                </div>
-                <h2 class="font-bold text-base mb-1 text-gray-800">Parada Pedagógica</h2>
-                <p class="text-sm text-gray-600">Lembramos que nesta sexta-feira não haverá aula devido à nossa parada pedagógica mensal.</p>
-            </div>
-        </article>
+    <section id="sec-geral" class="space-y-4" aria-live="polite">
+        <p class="text-sm text-center text-gray-500 py-4">Carregando avisos gerais...</p>
     </section>
 
     <!-- Seção 2: TURMA (Conteúdo específico da turma selecionada) -->
     <section id="sec-turma" class="hidden space-y-4">
         <div class="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 mb-4 text-center">
-            <h2 id="turma-titulo" class="text-lg font-bold text-gray-800">Turma: Carregando...</h2>
+            <h2 id="turma-titulo" class="text-lg font-bold text-gray-800">Turma ainda não identificada</h2>
             <p class="text-xs text-gray-500 mt-1">Acompanhe as atividades e o cardápio diário da turma.</p>
         </div>
-
-        <article class="bg-white rounded-2xl shadow-sm overflow-hidden border border-gray-100">
-            <div class="p-4">
-                <div class="flex justify-between items-start mb-2">
-                    <span class="bg-amber-100 text-amber-800 text-xs font-bold px-2 py-1 rounded-full">Cardápio</span>
-                    <p class="text-xs text-gray-400 font-medium">Hoje</p>
-                </div>
-                <h2 class="font-bold text-lg mb-2" style="color: var(--cor-primaria);">Almoço de Terça-feira</h2>
-                <ul class="text-sm text-gray-600 space-y-1 mt-3">
-                    <li class="flex items-center gap-2"><span class="w-1.5 h-1.5 rounded-full bg-[#f07167]"></span> Arroz e Feijão Carioca</li>
-                    <li class="flex items-center gap-2"><span class="w-1.5 h-1.5 rounded-full bg-[#f07167]"></span> Frango em iscas</li>
-                    <li class="flex items-center gap-2"><span class="w-1.5 h-1.5 rounded-full bg-[#f07167]"></span> Salada de Cenoura e Beterraba</li>
-                    <li class="flex items-center gap-2"><span class="w-1.5 h-1.5 rounded-full bg-[#f07167]"></span> Maçã (Sobremesa)</li>
-                </ul>
-            </div>
-        </article>
+        <div id="conteudo-turma" class="space-y-4" aria-live="polite"></div>
     </section>
 
     <!-- Seção 3: APOIE O CEI -->
     <section id="sec-apoie" class="hidden space-y-6">
         <div class="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 text-center">
-            <div class="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4">
+            <div class="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4" aria-hidden="true">
                 <svg class="w-8 h-8 text-[#b83b43]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"></path>
                 </svg>
             </div>
             <h2 class="text-xl font-bold mb-2" style="color: var(--cor-primaria);">Apoie o nosso projeto</h2>
-            <p class="text-sm text-gray-600 mb-6">A sua doação ajuda a manter a estrutura e os projetos educacionais da nossa creche. Contribua via PIX.</p>
-
-            <div class="bg-gray-100 p-4 rounded-xl inline-block mb-6">
-                <div class="w-40 h-40 border-2 border-dashed border-gray-300 flex items-center justify-center text-gray-400 text-sm">
-                    [QR Code Aqui]
-                </div>
-            </div>
-
-            <div class="bg-gray-50 rounded-lg p-3 flex items-center justify-between border border-gray-200">
-                <span class="text-sm font-mono text-gray-600 truncate mr-2" id="pix-key">12.345.678/0001-90</span>
-                <button onclick="copiarPix()" class="bg-[#b83b43] text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-[#a5333a] active:scale-95 transition-all">
-                    Copiar
-                </button>
-            </div>
+            <p class="text-sm text-gray-600 mb-4">A sua contribuição ajuda os projetos educacionais da nossa creche.</p>
+            <p class="text-sm font-medium text-gray-700 bg-gray-50 rounded-lg p-4 border border-gray-200">
+                Dados para doação serão disponibilizados após confirmação do CEI.
+            </p>
         </div>
     </section>
 
@@ -159,69 +105,41 @@ body {
     <p>&copy; 2026 Creche Lar Betânia. Todos os direitos reservados.</p>
 </footer>
 
-<!-- Toast Notification -->
-<div id="toast">Chave PIX copiada com sucesso!</div>
-
 <script>
-window.onload = function() {
-    const urlParams = new URLSearchParams(window.location.search);
-    const turma = urlParams.get('turma');
-    const headerTurma = document.getElementById('header-turma');
-    const turmaTitulo = document.getElementById('turma-titulo');
-
-    if(turma) {
-        const nomeTurma = turma.toUpperCase();
-        headerTurma.textContent = `Turma: ${nomeTurma}`;
-        turmaTitulo.textContent = `Turma: ${nomeTurma}`;
-    } else {
-        headerTurma.textContent = 'Mural Geral';
-        turmaTitulo.textContent = 'Nenhuma turma selecionada';
-    }
-}
-
 function switchTab(tabName) {
-    const secGeral = document.getElementById('sec-geral');
-    const secTurma = document.getElementById('sec-turma');
-    const secApoie = document.getElementById('sec-apoie');
+    const sections = {
+        geral: document.getElementById('sec-geral'),
+        turma: document.getElementById('sec-turma'),
+        apoie: document.getElementById('sec-apoie')
+    };
+    const tabs = {
+        geral: document.getElementById('tab-geral'),
+        turma: document.getElementById('tab-turma'),
+        apoie: document.getElementById('tab-apoie')
+    };
 
-    const tabGeral = document.getElementById('tab-geral');
-    const tabTurma = document.getElementById('tab-turma');
-    const tabApoie = document.getElementById('tab-apoie');
-
-    secGeral.classList.add('hidden');
-    secTurma.classList.add('hidden');
-    secApoie.classList.add('hidden');
-
-    [tabGeral, tabTurma, tabApoie].forEach(t => {
-        t.classList.remove('border-[#b83b43]', 'text-[#b83b43]');
-        t.classList.add('border-transparent', 'text-gray-400');
+    if (!sections[tabName]) return;
+    Object.entries(sections).forEach(([name, section]) => {
+        section.classList.toggle('hidden', name !== tabName);
+        tabs[name].classList.toggle('border-[#b83b43]', name === tabName);
+        tabs[name].classList.toggle('text-[#b83b43]', name === tabName);
+        tabs[name].classList.toggle('border-transparent', name !== tabName);
+        tabs[name].classList.toggle('text-gray-400', name !== tabName);
+        tabs[name].setAttribute('aria-selected', String(name === tabName));
     });
-
-    if(tabName === 'geral') {
-        secGeral.classList.remove('hidden');
-        tabGeral.classList.add('border-[#b83b43]', 'text-[#b83b43]');
-        tabGeral.classList.remove('border-transparent', 'text-gray-400');
-    } else if(tabName === 'turma') {
-        secTurma.classList.remove('hidden');
-        tabTurma.classList.add('border-[#b83b43]', 'text-[#b83b43]');
-        tabTurma.classList.remove('border-transparent', 'text-gray-400');
-    } else if(tabName === 'apoie') {
-        secApoie.classList.remove('hidden');
-        tabApoie.classList.add('border-[#b83b43]', 'text-[#b83b43]');
-        tabApoie.classList.remove('border-transparent', 'text-gray-400');
-    }
     window.scrollTo(0, 0);
 }
-
-function copiarPix() {
-    const pixKey = document.getElementById('pix-key').innerText;
-    navigator.clipboard.writeText(pixKey).then(() => {
-        const toast = document.getElementById('toast');
-        toast.className = "show";
-        setTimeout(() => { toast.className = toast.className.replace("show", ""); }, 3000);
-    });
-}
 </script>
+    <!-- Instalação: somente em contexto seguro; nunca inclui token no escopo/start_url. -->
+    <script>
+    if ('serviceWorker' in navigator && window.isSecureContext) {
+        window.addEventListener('load', () => {
+            navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => {
+                // O mural online permanece funcional mesmo se o SW não puder registrar.
+            });
+        });
+    }
+    </script>
     <!-- Script principal da aplicação -->
     <script src="app.js"></script>
 </body>

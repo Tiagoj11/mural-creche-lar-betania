@@ -4,6 +4,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Painel Administrativo - CEI Lar Betânia</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <style>#notificacao[hidden] { display: none !important; }</style>
 </head>
 <body class="bg-gray-100 min-h-screen text-gray-800">
     <header class="bg-[#b83b43] text-white p-4 shadow-md">
@@ -12,6 +13,14 @@
             <a href="index.html" class="text-sm bg-white/20 hover:bg-white/30 px-3 py-1.5 rounded-lg transition">Ver Mural</a>
         </div>
     </header>
+
+    <div id="notificacao" aria-live="polite" role="status" hidden
+        class="fixed z-[100] top-4 left-1/2 -translate-x-1/2 w-[calc(100%-2rem)] max-w-md rounded-xl border shadow-lg px-4 py-3 flex items-center gap-3 text-sm">
+        <span id="notificacao-icone" class="text-lg font-bold" aria-hidden="true"></span>
+        <span id="notificacao-mensagem" class="flex-1 break-words"></span>
+        <button type="button" id="notificacao-fechar" aria-label="Fechar aviso"
+            class="text-lg leading-none font-semibold px-2 py-1 rounded hover:bg-black/10">×</button>
+    </div>
 
     <main class="max-w-4xl mx-auto p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
         <!-- Formulário de Nova/Edição Publicação -->
@@ -23,6 +32,8 @@
                 <div>
                     <label class="block text-sm font-medium text-gray-600 mb-1">Senha Administrativa</label>
                     <input type="password" id="senha_admin" name="senha_admin" required class="w-full px-3 py-2 border rounded-xl focus:ring-2 focus:ring-[#b83b43] outline-none">
+                    <button type="button" id="btn-carregar-dados" class="mt-2 w-full bg-gray-800 text-white rounded-xl px-3 py-2 text-sm font-semibold hover:bg-gray-900">Carregar turmas e publicações</button>
+                    <p id="estado-admin" role="status" aria-live="polite" class="mt-2 text-xs text-gray-500">Informe a senha para consultar os dados.</p>
                 </div>
 
                 <div>
@@ -45,14 +56,19 @@
                             <option value="Atividade">Atividade</option>
                             <option value="Evento">Evento</option>
                             <option value="Cardápio">Cardápio</option>
+                            <option value="Aviso Geral">Aviso Geral</option>
                         </select>
                     </div>
                 </div>
                 <div>
-                    <label class="block text-sm font-medium text-gray-600 mb-1">Turma</label>
+                    <label class="flex items-center gap-2 text-sm font-semibold text-gray-700 mb-2" for="publicacao-geral">
+                        <input id="publicacao-geral" name="publicacao_geral" type="checkbox" value="1"
+                            class="w-4 h-4 accent-[#b83b43]"> Publicação geral
+                    </label>
+                    <label class="block text-sm font-medium text-gray-600 mb-1" for="turma_id">Turma (se não for geral)</label>
                     <div class="flex gap-2">
                         <select id="turma_id" name="turma_id" class="w-full px-3 py-2 border rounded-xl focus:ring-2 focus:ring-[#b83b43] outline-none" required>
-                            <option value="">Carregando turmas...</option>
+                            <option value="">Aguardando autenticação...</option>
                         </select>
                         <button type="button" onclick="abrirModalTurma()" class="bg-gray-200 text-gray-700 px-3 py-2 rounded-xl text-sm font-bold whitespace-nowrap hover:bg-gray-300 transition-colors" title="Cadastrar nova turma">+</button>
                     </div>
@@ -60,6 +76,7 @@
                 <div>
                     <label class="block text-sm font-medium text-gray-600 mb-1">Imagem (Upload)</label>
                     <input type="file" id="imagem" name="imagem" accept="image/*" class="w-full px-3 py-2 border rounded-xl focus:ring-2 focus:ring-[#b83b43] outline-none">
+                    <p id="imagem-preservada" class="text-xs text-gray-500 mt-1"></p>
                 </div>
                 <button type="submit" id="btn-submit" class="w-full bg-[#b83b43] text-white font-bold py-2.5 rounded-xl hover:bg-[#a03037] transition shadow-md">Publicar</button>
             </form>
@@ -78,7 +95,7 @@
             <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
                 <h2 class="font-bold text-lg mb-4 text-gray-700">Listagem de Publicações</h2>
                 <div id="lista-publicacoes" class="space-y-3 max-h-96 overflow-y-auto pr-2">
-                    <p class="text-sm text-gray-500">Selecione uma turma no formulário para visualizar os avisos e atividades.</p>
+                    <p class="text-sm text-gray-500">Informe a senha e clique em Carregar turmas e publicações.</p>
                 </div>
             </div>
         </section>
@@ -98,42 +115,169 @@
     </div>
 
     <script>
+
         const API_URL = window.location.origin;
+        let versaoConsulta = 0;
+        const campoSenha = document.getElementById('senha_admin');
+        const selectTurma = document.getElementById('turma_id');
+        const listaPublicacoes = document.getElementById('lista-publicacoes');
+        const estadoAdmin = document.getElementById('estado-admin');
+        const botaoCarregar = document.getElementById('btn-carregar-dados');
+        const campoGeral = document.getElementById('publicacao-geral');
+        const notificacao = document.getElementById('notificacao');
+        const textoAviso = document.getElementById('notificacao-mensagem');
+        const iconeAviso = document.getElementById('notificacao-icone');
+        let temporizadorAviso = null;
+
+        function fecharAviso() {
+            clearTimeout(temporizadorAviso);
+            notificacao.hidden = true;
+        }
+
+        function notificar(mensagem, tipo = 'erro') {
+            clearTimeout(temporizadorAviso);
+            const sucesso = tipo === 'sucesso';
+            notificacao.hidden = false;
+            notificacao.setAttribute('role', sucesso ? 'status' : 'alert');
+            notificacao.className = 'fixed z-[100] top-4 left-1/2 -translate-x-1/2 w-[calc(100%-2rem)] max-w-md rounded-xl border shadow-lg px-4 py-3 flex items-center gap-3 text-sm ' +
+                (sucesso ? 'bg-green-50 text-green-900 border-green-300' : 'bg-red-50 text-red-900 border-red-300');
+            iconeAviso.textContent = sucesso ? '✓' : '⚠';
+            textoAviso.textContent = String(mensagem);
+            temporizadorAviso = setTimeout(fecharAviso, 4500);
+        }
+
+        function sincronizarDestino() {
+            selectTurma.value = '';
+            selectTurma.disabled = campoGeral.checked;
+            selectTurma.required = !campoGeral.checked;
+        }
 
         document.addEventListener('DOMContentLoaded', () => {
-            carregarTurmas();
-            
-            document.getElementById('turma_id').addEventListener('change', (e) => {
-                if(e.target.value) {
-                    carregarListaGerenciamento(e.target.value);
-                } else {
-                    document.getElementById('lista-publicacoes').innerHTML = '<p class="text-sm text-gray-500">Selecione uma turma no formulário para visualizar os avisos e atividades.</p>';
-                }
+            // As consultas protegidas são iniciadas apenas por ação explícita após a senha.
+            botaoCarregar.addEventListener('click', carregarPainelAdministrativo);
+            campoGeral.addEventListener('change', sincronizarDestino);
+            document.getElementById('notificacao-fechar').addEventListener('click', fecharAviso);
+            campoSenha.addEventListener('input', () => {
+                versaoConsulta++;
+                botaoCarregar.disabled = false;
+                limparDadosAdministrativos();
+                estadoAdmin.textContent = 'Clique em Carregar dados após informar a senha.';
             });
         });
 
-        async function carregarTurmas(turmaSelecionadaId = null) {
-            try {
-                const res = await fetch(`${API_URL}/api/turmas`);
-                if (!res.ok) throw new Error('Erro ao carregar turmas');
-                const turmas = await res.json();
-                
-                const selectTurma = document.getElementById('turma_id');
-                selectTurma.innerHTML = '<option value="">Selecione uma turma</option>';
-                
-                turmas.forEach(t => {
-                    const opt = document.createElement('option');
-                    opt.value = t.id;
-                    opt.textContent = t.nome_turma;
-                    opt.dataset.token = t.codigo_acesso;
-                    if (turmaSelecionadaId && t.id == turmaSelecionadaId) {
-                        opt.selected = true;
-                    }
-                    selectTurma.appendChild(opt);
-                });
-            } catch (err) {
-                console.error('Erro ao carregar dropdown de turmas:', err);
+        function limparDadosAdministrativos() {
+            selectTurma.innerHTML = '<option value="">Aguardando autenticação...</option>';
+            listaPublicacoes.textContent = 'Informe a senha e clique em Carregar dados.';
+        }
+
+        function verificarSenha(senha) {
+            if (!senha || !senha.trim()) {
+                throw new Error('Informe a Senha Administrativa para consultar os dados.');
             }
+        }
+
+        async function carregarPainelAdministrativo() {
+            const senha = campoSenha.value;
+            const versao = ++versaoConsulta;
+            botaoCarregar.disabled = true;
+            estadoAdmin.textContent = 'Carregando dados administrativos...';
+            try {
+                verificarSenha(senha);
+                await carregarTurmas(null, senha, versao);
+                if (versao !== versaoConsulta) return;
+                await carregarListaGerenciamento(senha, versao);
+                if (versao !== versaoConsulta) return;
+                estadoAdmin.textContent = 'Turmas e publicações carregadas.';
+            } catch (erro) {
+                if (versao !== versaoConsulta) return;
+                limparDadosAdministrativos();
+                estadoAdmin.textContent = erro.message;
+                notificar(erro.message);
+            } finally {
+                if (versao === versaoConsulta) botaoCarregar.disabled = false;
+            }
+        }
+
+        async function carregarTurmas(turmaSelecionadaId = null, senha = campoSenha.value, versao = versaoConsulta) {
+            verificarSenha(senha);
+            const resposta = await fetch(API_URL + '/api/turmas', {
+                headers: { 'Authorization': senha }
+            });
+            if (resposta.status === 401) throw new Error('Senha administrativa inválida ou não autorizada.');
+            if (!resposta.ok) throw new Error('Não foi possível carregar as turmas.');
+            const turmas = await resposta.json();
+            if (!Array.isArray(turmas)) throw new Error('Resposta inválida ao consultar turmas.');
+            if (versao !== versaoConsulta) return;
+
+            selectTurma.innerHTML = '<option value="">Selecione uma turma</option>';
+            turmas.forEach(turma => {
+                const opcao = document.createElement('option');
+                opcao.value = turma.id;
+                opcao.textContent = turma.nome_turma;
+                opcao.dataset.token = turma.codigo_acesso;
+                if (turmaSelecionadaId != null && String(turma.id) === String(turmaSelecionadaId)) {
+                    opcao.selected = true;
+                }
+                selectTurma.appendChild(opcao);
+            });
+        }
+
+        async function carregarListaGerenciamento(senha = campoSenha.value, versao = versaoConsulta) {
+            verificarSenha(senha);
+            listaPublicacoes.textContent = 'Carregando publicações...';
+            const resposta = await fetch(API_URL + '/api/admin/publicacoes', {
+                headers: { 'Authorization': senha }
+            });
+            if (resposta.status === 401) throw new Error('Senha administrativa inválida ou não autorizada.');
+            if (!resposta.ok) throw new Error('Não foi possível carregar as publicações.');
+            const publicacoes = await resposta.json();
+            if (!Array.isArray(publicacoes)) throw new Error('Resposta inválida ao consultar publicações.');
+            if (versao !== versaoConsulta) return;
+
+            listaPublicacoes.replaceChildren();
+            if (publicacoes.length === 0) {
+                listaPublicacoes.textContent = 'Nenhuma publicação cadastrada.';
+                return;
+            }
+
+            publicacoes.forEach(pub => {
+                const el = document.createElement('div');
+                el.className = 'bg-gray-50 p-3 rounded-lg border border-gray-200 flex flex-col md:flex-row justify-between items-start md:items-center gap-3';
+                const detalhes = document.createElement('div');
+                detalhes.className = 'flex-1 truncate pr-2 w-full';
+
+                const tipo = document.createElement('span');
+                tipo.className = 'text-[10px] font-bold text-[#b83b43] bg-red-50 border border-red-100 px-2 py-0.5 rounded-full uppercase tracking-wider';
+                tipo.textContent = pub.tipo || '';
+                const titulo = document.createElement('p');
+                titulo.className = 'text-sm font-semibold mt-1 truncate text-gray-800';
+                titulo.textContent = pub.titulo || '';
+                const informacoes = document.createElement('p');
+                informacoes.className = 'text-xs text-gray-500 mt-0.5';
+                const destino = pub.turma_id === null ? 'Geral' : (pub.nome_turma || 'Turma #' + pub.turma_id);
+                informacoes.textContent = (pub.data || '') + ' · ' + destino;
+                detalhes.appendChild(tipo);
+                detalhes.appendChild(titulo);
+                detalhes.appendChild(informacoes);
+
+                const acoes = document.createElement('div');
+                acoes.className = 'flex gap-2 w-full md:w-auto';
+                const editar = document.createElement('button');
+                editar.type = 'button';
+                editar.className = 'flex-1 md:flex-none text-xs bg-white border border-gray-300 hover:bg-gray-50 px-3 py-1.5 rounded-lg font-medium text-gray-700 transition-colors shadow-sm';
+                editar.textContent = 'Editar';
+                editar.addEventListener('click', () => editarPublicacao(pub));
+                const excluir = document.createElement('button');
+                excluir.type = 'button';
+                excluir.className = 'flex-1 md:flex-none text-xs bg-red-50 border border-red-200 hover:bg-red-100 px-3 py-1.5 rounded-lg font-medium text-red-700 transition-colors shadow-sm';
+                excluir.textContent = 'Excluir';
+                excluir.addEventListener('click', () => deletarPublicacao(pub.id));
+                acoes.appendChild(editar);
+                acoes.appendChild(excluir);
+                el.appendChild(detalhes);
+                el.appendChild(acoes);
+                listaPublicacoes.appendChild(el);
+            });
         }
 
         function abrirModalTurma() {
@@ -147,209 +291,127 @@
         }
 
         async function salvarNovaTurma() {
-            const inputNome = document.getElementById('nova-turma-nome');
-            const inputSenhaModal = document.getElementById('nova-turma-senha');
-            const inputSenhaForm = document.getElementById('senha_admin');
-
-            const nome_turma = inputNome ? inputNome.value.trim() : '';
-            const senhaAdmin = (inputSenhaModal && inputSenhaModal.value.trim()) 
-                ? inputSenhaModal.value.trim() 
-                : (inputSenhaForm ? inputSenhaForm.value.trim() : '');
-
-            if (!nome_turma) {
-                alert('Digite o nome da turma.');
-                return;
-            }
-            if (!senhaAdmin) {
-                alert('Insira a Senha Administrativa para cadastrar a turma.');
-                return;
-            }
+            const nome_turma = document.getElementById('nova-turma-nome').value.trim();
+            const senha = document.getElementById('nova-turma-senha').value || campoSenha.value;
+            if (!nome_turma) return notificar('Digite o nome da turma.');
+            if (!senha.trim()) return notificar('Insira a Senha Administrativa para cadastrar a turma.');
 
             try {
-                const res = await fetch(`${API_URL}/api/turmas`, {
+                const resposta = await fetch(API_URL + '/api/turmas', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': senhaAdmin
-                    },
+                    headers: { 'Content-Type': 'application/json', 'Authorization': senha },
                     body: JSON.stringify({ nome_turma })
                 });
+                const resultado = await resposta.json();
+                if (!resposta.ok) return notificar(resultado.erro || 'Erro ao cadastrar turma.');
 
-                const result = await res.json();
-
-                if (res.ok) {
-                    alert('Turma cadastrada com sucesso!');
-                    fecharModalNovaTurma();
-                    await carregarTurmas(result.id);
-                    if (inputSenhaForm && !inputSenhaForm.value) {
-                        inputSenhaForm.value = senhaAdmin;
-                    }
-                } else {
-                    alert(result.erro || 'Erro ao cadastrar turma.');
-                }
-            } catch (error) {
-                console.error('Erro de conexão ao salvar turma:', error);
-                alert('Erro de conexão com o servidor local.');
+                campoSenha.value = senha;
+                fecharModalNovaTurma();
+                notificar('Turma cadastrada com sucesso!', 'sucesso');
+                const versao = ++versaoConsulta;
+                await carregarTurmas(resultado.id, senha, versao);
+                if (versao !== versaoConsulta) return;
+                await carregarListaGerenciamento(senha, versao);
+                estadoAdmin.textContent = 'Turmas e publicações carregadas.';
+            } catch (erro) {
+                estadoAdmin.textContent = erro.message;
+                notificar('Falha ao atualizar o painel após cadastrar turma.');
             }
         }
 
         function copiarLinkTurma() {
-            const select = document.getElementById('turma_id');
-            const option = select.options[select.selectedIndex];
-            
-            if (!option || !option.value) {
-                alert('Selecione uma turma válida no dropdown primeiro.');
-                return;
-            }
-            
-            const token = option.dataset.token;
-            if (!token) {
-                alert('Token da turma não disponível.');
-                return;
-            }
+            const opcao = selectTurma.options[selectTurma.selectedIndex];
+            if (!opcao || !opcao.value) return notificar('Selecione uma turma válida no dropdown primeiro.');
+            const token = opcao.dataset.token;
+            if (!token) return notificar('Token da turma não disponível.');
 
-            const link = `${API_URL}/?token=${token}`;
-            
-            navigator.clipboard.writeText(link).then(() => {
-                alert(`Link Mágico copiado com sucesso!\n${link}`);
-            }).catch(err => {
-                console.error('Erro ao copiar:', err);
-                alert('Não foi possível copiar o link.');
+            const link = API_URL + '/?token=' + encodeURIComponent(token);
+            return navigator.clipboard.writeText(link).then(() => {
+                notificar('Link da turma copiado com sucesso!', 'sucesso');
+            }).catch(() => {
+                notificar('Não foi possível copiar o link.');
             });
         }
 
-        async function carregarListaGerenciamento(turmaId) {
-            const select = document.getElementById('turma_id');
-            const option = select.querySelector(`option[value="${turmaId}"]`);
-            if (!option) return;
-
-            const token = option.dataset.token;
-            const container = document.getElementById('lista-publicacoes');
-            container.innerHTML = '<p class="text-sm text-gray-500">Carregando...</p>';
-
-            try {
-                const res = await fetch(`${API_URL}/api/publicacoes/token/${token}`);
-                if (!res.ok) throw new Error('Erro ao carregar');
-                const data = await res.json();
-
-                container.innerHTML = '';
-                if (!data.publicacoes || data.publicacoes.length === 0) {
-                    container.innerHTML = '<p class="text-sm text-gray-500">Nenhuma publicação encontrada para esta turma.</p>';
-                    return;
-                }
-
-                data.publicacoes.forEach(pub => {
-                    const el = document.createElement('div');
-                    el.className = 'bg-gray-50 p-3 rounded-lg border border-gray-200 flex flex-col md:flex-row justify-between items-start md:items-center gap-3';
-                    el.innerHTML = `
-                        <div class="flex-1 truncate pr-2 w-full">
-                            <span class="text-[10px] font-bold text-[#b83b43] bg-red-50 border border-red-100 px-2 py-0.5 rounded-full uppercase tracking-wider">${pub.tipo}</span>
-                            <p class="text-sm font-semibold mt-1 truncate text-gray-800">${pub.titulo}</p>
-                            <p class="text-xs text-gray-400 mt-0.5">${pub.data}</p>
-                        </div>
-                        <div class="flex gap-2 w-full md:w-auto">
-                            <button onclick="editarPublicacao(${pub.id})" class="flex-1 md:flex-none text-xs bg-white border border-gray-300 hover:bg-gray-50 px-3 py-1.5 rounded-lg font-medium text-gray-700 transition-colors shadow-sm">Editar</button>
-                            <button onclick="deletarPublicacao(${pub.id})" class="flex-1 md:flex-none text-xs bg-red-50 border border-red-200 hover:bg-red-100 px-3 py-1.5 rounded-lg font-medium text-red-700 transition-colors shadow-sm">Excluir</button>
-                        </div>
-                    `;
-                    el.dataset.pub = JSON.stringify(pub);
-                    container.appendChild(el);
-                });
-            } catch (err) {
-                console.error(err);
-                container.innerHTML = '<p class="text-sm text-red-500">Erro ao carregar publicações.</p>';
-            }
-        }
-
-        function editarPublicacao(id) {
-            const container = document.getElementById('lista-publicacoes');
-            const items = container.querySelectorAll('div[data-pub]');
-            let pub = null;
-            items.forEach(el => {
-                const itemData = JSON.parse(el.dataset.pub);
-                if (itemData.id === id) pub = itemData;
-            });
-
-            if (!pub) return;
-
+        function editarPublicacao(pub) {
+            
             document.getElementById('pub_id').value = pub.id;
-            document.getElementById('titulo').value = pub.titulo;
+            document.getElementById('titulo').value = pub.titulo || '';
             document.getElementById('descricao').value = pub.descricao || '';
-            document.getElementById('data').value = pub.data;
-            document.getElementById('tipo').value = pub.tipo;
-            
+            document.getElementById('data').value = pub.data || '';
+            document.getElementById('tipo').value = pub.tipo || '';
+            campoGeral.checked = pub.turma_id === null;
+            sincronizarDestino();
+            if (!campoGeral.checked) selectTurma.value = String(pub.turma_id);
+            document.getElementById('imagem-preservada').textContent = pub.imagem_url
+                ? 'Imagem atual preservada se nenhuma nova for enviada.' : '';
             document.getElementById('form-title').textContent = 'Editar Publicação';
             document.getElementById('btn-submit').textContent = 'Salvar Alterações';
             window.scrollTo({ top: 0, behavior: 'smooth' });
         }
 
         async function deletarPublicacao(id) {
-            const senhaAdmin = document.getElementById('senha_admin').value;
-            if (!senhaAdmin) {
-                alert('Insira a Senha Administrativa no formulário principal para excluir.');
-                return;
-            }
-
+            const senha = campoSenha.value;
+            if (!senha.trim()) return notificar('Insira a Senha Administrativa para excluir.');
             if (!confirm('Deseja realmente excluir esta publicação permanentemente?')) return;
-
             try {
-                const res = await fetch(`${API_URL}/api/publicacoes/${id}`, {
+                const resposta = await fetch(API_URL + '/api/publicacoes/' + encodeURIComponent(id), {
                     method: 'DELETE',
-                    headers: { 'Authorization': senhaAdmin }
+                    headers: { 'Authorization': senha }
                 });
-
-                if (res.ok) {
-                    alert('Publicação excluída com sucesso!');
-                    const turmaId = document.getElementById('turma_id').value;
-                    if(turmaId) carregarListaGerenciamento(turmaId);
-                } else {
-                    const err = await res.json();
-                    alert(err.erro || 'Erro ao excluir a publicação.');
+                if (!resposta.ok) {
+                    const erro = await resposta.json();
+                    return notificar(erro.erro || 'Erro ao excluir a publicação.');
                 }
-            } catch (error) {
-                console.error(error);
-                alert('Erro de conexão ao tentar excluir.');
+                notificar('Publicação excluída com sucesso!', 'sucesso');
+                await carregarListaGerenciamento(senha);
+            } catch (erro) {
+                notificar(erro.message || 'Erro de conexão ao tentar excluir.');
             }
         }
 
-        document.getElementById('form-publicacao').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            
-            const form = e.target;
-            const formData = new FormData(form);
-            const senhaAdmin = formData.get('senha_admin');
-            const pubId = formData.get('pub_id');
-            const isEdicao = Boolean(pubId);
-
-            const url = isEdicao ? `${API_URL}/api/publicacoes/${pubId}` : `${API_URL}/api/publicacoes`;
-            const metodo = isEdicao ? 'PUT' : 'POST';
+        document.getElementById('form-publicacao').addEventListener('submit', async (evento) => {
+            evento.preventDefault();
+            const formulario = evento.target;
+            const dados = new FormData(formulario);
+            const senha = campoSenha.value;
+            const id = dados.get('pub_id');
+            const turmaSelecionada = selectTurma.value;
+            const geral = campoGeral.checked;
+            const edicao = Boolean(id);
+            const url = API_URL + '/api/publicacoes' + (edicao ? '/' + encodeURIComponent(id) : '');
+            dados.delete('senha_admin');
+            dados.delete('publicacao_geral');
+            dados.set('destino', geral ? 'geral' : 'turma');
+            if (geral) dados.delete('turma_id');
+            if (!senha.trim()) return notificar('Informe a Senha Administrativa.');
+            if (!geral && !turmaSelecionada) return notificar('Selecione uma turma para a publicação.');
 
             try {
-                const res = await fetch(url, {
-                    method: metodo,
-                    headers: { 'Authorization': senhaAdmin },
-                    body: formData
+                const resposta = await fetch(url, {
+                    method: edicao ? 'PUT' : 'POST',
+                    headers: { 'Authorization': senha },
+                    body: dados
                 });
+                const resultado = await resposta.json();
+                if (!resposta.ok) return notificar(resultado.erro || 'Falha na operação');
 
-                const data = await res.json();
-
-                if (res.ok) {
-                    alert(isEdicao ? 'Publicação atualizada com sucesso!' : 'Publicação cadastrada com sucesso!');
-                    form.reset();
-                    document.getElementById('pub_id').value = '';
-                    document.getElementById('form-title').textContent = 'Nova Publicação';
-                    document.getElementById('btn-submit').textContent = 'Publicar';
-                    
-                    const turmaId = document.getElementById('turma_id').value;
-                    if (turmaId) carregarListaGerenciamento(turmaId);
-                } else {
-                    alert(`Erro: ${data.erro || 'Falha na operação'}`);
-                }
-            } catch (err) {
-                console.error('Erro no envio:', err);
-                alert('Erro ao conectar com o servidor local.');
+                notificar(edicao ? 'Publicação atualizada com sucesso!' : 'Publicação cadastrada com sucesso!', 'sucesso');
+                formulario.reset();
+                document.getElementById('pub_id').value = '';
+                campoSenha.value = senha;
+                campoGeral.checked = false;
+                sincronizarDestino();
+                if (turmaSelecionada) selectTurma.value = turmaSelecionada;
+                document.getElementById('imagem-preservada').textContent = '';
+                document.getElementById('form-title').textContent = 'Nova Publicação';
+                document.getElementById('btn-submit').textContent = 'Publicar';
+                await carregarListaGerenciamento(senha);
+            } catch (erro) {
+                notificar(erro.message || 'Erro ao conectar com o servidor local.');
             }
         });
+
     </script>
 </body>
 </html>

@@ -1,122 +1,135 @@
+'use strict';
+
 const API_URL = window.location.origin;
-const urlParams = new URLSearchParams(window.location.search);
-const tokenAtual = urlParams.get('token');
-
-const turmaTituloEl = document.getElementById('turma-titulo');
+const tokenAtual = new URLSearchParams(window.location.search).get('token');
 const secGeralEl = document.getElementById('sec-geral');
-const secTurmaEl = document.getElementById('sec-turma');
+const conteudoTurmaEl = document.getElementById('conteudo-turma');
+const turmaTituloEl = document.getElementById('turma-titulo');
+const headerTurmaEl = document.getElementById('header-turma');
 
-async function carregarPublicacoes() {
-    if (!tokenAtual) {
-        exibirAcessoNegado("Acesso Restrito", "Utilize o Link Mágico fornecido pela creche para visualizar o mural da sua turma.");
-        return;
-    }
+function textoElemento(tag, classes, conteudo) {
+    const elemento = document.createElement(tag);
+    elemento.className = classes;
+    elemento.textContent = conteudo == null ? '' : String(conteudo);
+    return elemento;
+}
 
-    try {
-        const response = await fetch(`${API_URL}/api/publicacoes/token/${encodeURIComponent(tokenAtual)}`);
-        
-        if (!response.ok) {
-            throw new Error('Link inválido ou expirado');
-        }
+// Apenas URLs públicas de imagens geradas pela aplicação: nunca aceitar javascript:, data:,
+// protocolo externo, parâmetros ou navegação por diretórios.
+function imagemPublicadaSegura(url) {
+    return typeof url === 'string' &&
+        /^\/uploads\/[a-zA-Z0-9_-]+\.(?:jpg|jpeg|png|gif|webp|avif)$/.test(url)
+        ? url : null;
+}
 
-        const data = await response.json();
-        
-        if (turmaTituloEl) {
-            turmaTituloEl.textContent = `Turma: ${data.nome_turma.toUpperCase()}`;
-        }
+function formatarData(data) {
+    if (typeof data !== 'string') return '';
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(data);
+    return match ? match[3] + '/' + match[2] + '/' + match[1] : data;
+}
 
-        renderizarMural(data.publicacoes, data.nome_turma);
-    } catch (error) {
-        console.error('Falha ao carregar publicações:', error);
-        exibirAcessoNegado("Link Inválido ou Expirado", "Não foi possível carregar as informações desta turma. Verifique se o link está correto.");
-    }
+function mensagemEstado(container, titulo, mensagem) {
+    if (!container) return;
+    const bloco = document.createElement('div');
+    bloco.className = 'bg-white rounded-2xl border border-gray-100 p-5 text-center shadow-sm';
+    bloco.appendChild(textoElemento('p', 'font-bold text-gray-700 mb-1', titulo));
+    if (mensagem) bloco.appendChild(textoElemento('p', 'text-sm text-gray-500', mensagem));
+    container.replaceChildren(bloco);
 }
 
 function exibirAcessoNegado(titulo, mensagem) {
-    const blocoErro = `
-        <div class="bg-amber-50 text-amber-800 p-6 rounded-2xl text-center text-sm shadow-sm border border-amber-200 my-4">
-            <p class="font-bold text-base mb-1">${titulo}</p>
-            <p>${mensagem}</p>
-        </div>
-    `;
-    if (secGeralEl) secGeralEl.innerHTML = blocoErro;
-    if (secTurmaEl) secTurmaEl.innerHTML = '';
+    mensagemEstado(secGeralEl, titulo, mensagem);
+    mensagemEstado(conteudoTurmaEl, 'Mural da turma indisponível', mensagem);
+    if (headerTurmaEl) headerTurmaEl.textContent = 'Acesso por link de turma';
+    if (turmaTituloEl) turmaTituloEl.textContent = 'Turma não identificada';
+}
+
+function criarCartaoPublicacao(pub, geral) {
+    const artigo = document.createElement('article');
+    artigo.className = 'bg-white rounded-2xl shadow-sm overflow-hidden border border-gray-100';
+    const imagemUrl = imagemPublicadaSegura(pub.imagem_url);
+    if (imagemUrl) {
+        const imagem = document.createElement('img');
+        imagem.src = imagemUrl;
+        imagem.alt = pub.titulo ? 'Imagem: ' + String(pub.titulo) : 'Imagem da publicação';
+        imagem.loading = 'lazy';
+        imagem.decoding = 'async';
+        // Mantém proporção e a fotografia inteira, sem altura fixa/corte por cover.
+        // A própria imagem determina a altura do cartão até o limite responsivo.
+        imagem.className = 'imagem-mural';
+        imagem.onerror = () => {
+            // Uma URL inexistente não deixa ícone de imagem quebrada no mural.
+            imagem.onerror = null;
+            imagem.remove();
+        };
+        artigo.appendChild(imagem);
+    }
+
+    const conteudo = document.createElement('div');
+    conteudo.className = 'p-4';
+    const linha = document.createElement('div');
+    linha.className = 'flex justify-between items-start gap-2 mb-2';
+    linha.appendChild(textoElemento('span',
+        geral ? 'bg-red-50 text-[#b83b43] text-xs font-bold px-2 py-1 rounded-full'
+            : 'bg-amber-100 text-amber-800 text-xs font-bold px-2 py-1 rounded-full',
+        pub.tipo));
+    linha.appendChild(textoElemento('time', 'text-xs text-gray-400 font-medium', formatarData(pub.data)));
+    conteudo.appendChild(linha);
+    conteudo.appendChild(textoElemento('h2', 'font-bold text-lg mb-2 text-gray-800', pub.titulo));
+    conteudo.appendChild(textoElemento('p', 'text-sm text-gray-600 whitespace-pre-line', pub.descricao || ''));
+    artigo.appendChild(conteudo);
+    return artigo;
 }
 
 function renderizarMural(publicacoes, nomeTurma) {
-    // CORREÇÃO APLICADA: Limpa os containers antes de renderizar para não duplicar itens
-    if (secGeralEl) secGeralEl.innerHTML = '';
-    if (secTurmaEl) secTurmaEl.innerHTML = '';
+    if (!Array.isArray(publicacoes)) throw new Error('Resposta inválida de publicações.');
+    const gerais = publicacoes.filter(pub => pub && pub.turma_id === null);
+    // A autorização da turma é verificada pelo servidor a partir do token.
+    const especificas = publicacoes.filter(pub => pub && Number.isInteger(pub.turma_id) && pub.turma_id > 0);
 
-    if (!publicacoes || publicacoes.length === 0) {
-        if (secGeralEl) secGeralEl.innerHTML = '<div class="bg-white p-6 rounded-2xl text-center text-gray-500 shadow-sm border border-gray-100">Nenhuma publicação geral encontrada no momento.</div>';
-        if (secTurmaEl) secTurmaEl.innerHTML = `<div class="bg-white p-6 rounded-2xl text-center text-gray-500 shadow-sm border border-gray-100">Nenhum aviso específico para a turma ${nomeTurma.toUpperCase()}.</div>`;
+    if (secGeralEl) {
+        secGeralEl.replaceChildren();
+        if (gerais.length === 0) {
+            mensagemEstado(secGeralEl, 'Nenhuma publicação geral no momento.');
+        } else {
+            gerais.forEach(pub => secGeralEl.appendChild(criarCartaoPublicacao(pub, true)));
+        }
+    }
+    if (conteudoTurmaEl) {
+        conteudoTurmaEl.replaceChildren();
+        if (especificas.length === 0) {
+            mensagemEstado(conteudoTurmaEl, 'Nenhuma publicação específica no momento.',
+                'Turma: ' + nomeTurma);
+        } else {
+            especificas.forEach(pub => conteudoTurmaEl.appendChild(criarCartaoPublicacao(pub, false)));
+        }
+    }
+}
+
+async function carregarPublicacoes() {
+    if (!tokenAtual) {
+        exibirAcessoNegado('Link de turma necessário',
+            'Use o link fornecido pela creche para ver as publicações. A área Apoie está disponível sem link.');
         return;
     }
-
-    let htmlGeral = '';
-    let htmlTurma = '';
-
-    publicacoes.forEach(pub => {
-        const dataFormatada = formatarData(pub.data);
-        const imagemTag = pub.imagem_url 
-            ? `<div class="h-48 bg-gray-200 relative overflow-hidden">
-                 <img src="${pub.imagem_url}" alt="${pub.titulo}" class="w-full h-full object-cover">
-                 <span class="absolute top-3 left-3 bg-[#f07167] text-white text-xs font-bold px-2.5 py-1 rounded-full shadow-md">${pub.tipo}</span>
-               </div>`
-            : '';
-
-        if (pub.nome_turma && pub.nome_turma.toLowerCase() === 'geral') {
-            htmlGeral += `
-                <article class="bg-white rounded-2xl shadow-sm overflow-hidden border border-gray-100 mb-4">
-                    ${imagemTag}
-                    <div class="p-4">
-                        <div class="flex justify-between items-start mb-2">
-                            <span class="bg-red-50 text-[#b83b43] text-xs font-bold px-2 py-1 rounded-full">${pub.tipo}</span>
-                            <p class="text-xs text-gray-400 font-medium">${dataFormatada}</p>
-                        </div>
-                        <h2 class="font-bold text-lg mb-1 text-gray-800">${pub.titulo}</h2>
-                        <p class="text-sm text-gray-600 whitespace-pre-line">${pub.descricao || ''}</p>
-                    </div>
-                </article>
-            `;
-        } else {
-            htmlTurma += `
-                <article class="bg-white rounded-2xl shadow-sm overflow-hidden border border-gray-100 p-4 mb-4">
-                    <div class="flex justify-between items-start mb-2">
-                        <span class="bg-amber-100 text-amber-800 text-xs font-bold px-2 py-1 rounded-full">${pub.tipo}</span>
-                        <p class="text-xs text-gray-400 font-medium">${dataFormatada}</p>
-                    </div>
-                    <h2 class="font-bold text-lg mb-2 text-[#b83b43]">${pub.titulo}</h2>
-                    <p class="text-sm text-gray-600 whitespace-pre-line">${pub.descricao || ''}</p>
-                    ${pub.imagem_url ? `<img src="${pub.imagem_url}" class="mt-3 rounded-xl w-full object-cover max-h-48">` : ''}
-                </article>
-            `;
+    try {
+        const response = await fetch(API_URL + '/api/publicacoes/token/' + encodeURIComponent(tokenAtual), {
+            cache: 'no-store'
+        });
+        if (!response.ok) {
+            if (response.status === 404) throw new Error('Link de turma inválido ou expirado.');
+            throw new Error('Não foi possível consultar o mural agora.');
         }
-    });
-
-    if (secGeralEl) secGeralEl.innerHTML = htmlGeral || `<p class="text-center text-gray-400 text-sm py-4">Sem avisos gerais cadastrados.</p>`;
-    if (secTurmaEl) secTurmaEl.innerHTML = htmlTurma || `<p class="text-center text-gray-400 text-sm py-4">Sem avisos específicos para a turma ${nomeTurma.toUpperCase()}.</p>`;
-}
-
-function formatarData(dataString) {
-    if (!dataString) return '';
-    const partes = dataString.split('-');
-    if (partes.length === 3) return `${partes[2]}/${partes[1]}/${partes[0]}`;
-    return dataString;
-}
-
-function copiarPix() {
-    const pixKey = document.getElementById('pix-key')?.textContent || '';
-    navigator.clipboard.writeText(pixKey).then(() => {
-        const toast = document.getElementById('toast');
-        if (toast) {
-            toast.classList.remove('opacity-0', 'pointer-events-none');
-            setTimeout(() => {
-                toast.classList.add('opacity-0', 'pointer-events-none');
-            }, 3000);
+        const data = await response.json();
+        if (!data || typeof data.nome_turma !== 'string' || !Array.isArray(data.publicacoes)) {
+            throw new Error('Resposta inválida do servidor.');
         }
-    });
+        if (headerTurmaEl) headerTurmaEl.textContent = 'Turma: ' + data.nome_turma;
+        if (turmaTituloEl) turmaTituloEl.textContent = 'Turma: ' + data.nome_turma;
+        renderizarMural(data.publicacoes, data.nome_turma);
+    } catch (erro) {
+        exibirAcessoNegado('Mural indisponível', erro.message);
+    }
 }
 
 document.addEventListener('DOMContentLoaded', carregarPublicacoes);
