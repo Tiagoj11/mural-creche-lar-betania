@@ -246,6 +246,35 @@ test('Sessão administrativa: Chromium real, Express e SQLite fictícios', {time
             assert.ok(dialogs.includes('confirm'));
             assert.ok(requests.some(r=>/^\/api\/publicacoes\/\d+$/.test(r.path)&&r.method==='DELETE'&&r.csrf));
         });
+        await t.test('403 de mutação não é repetido; revalidação explícita recupera sessão',async()=>{
+            let requestsBloqueadas=0;
+            const intercept=async route=>{
+                if(route.request().method()==='POST' && route.request().url().endsWith('/api/publicacoes')){
+                    requestsBloqueadas++;
+                    return route.fulfill({
+                        status:403, contentType:'application/json',
+                        body:JSON.stringify({erro:'Requisição não autorizada. Atualize o painel.'})
+                    });
+                }
+                return route.continue();
+            };
+            await page.route('**/api/publicacoes',intercept);
+            try{
+                await $('#publicacao-geral').check();
+                await $('#titulo').fill('Não deve ser criada');
+                await $('#data').fill('2026-11-11');
+                await $('#tipo').selectOption('Evento');
+                await $('#btn-submit').click();
+                await $('#btn-revalidar-sessao').waitFor({state:'visible'});
+                assert.equal(requestsBloqueadas,1,'POST sem repetição automática');
+                assert.equal(await row('Não deve ser criada').count(),0);
+                await $('#btn-revalidar-sessao').click();
+                await $('#admin-panel').waitFor({state:'visible'});
+                assert.equal(requestsBloqueadas,1,'Revalidar sessão não reenvia POST');
+            }finally{
+                await page.unroute('**/api/publicacoes',intercept);
+            }
+        });
         await t.test('reload e duas abas com mesmo cookie mantêm sessão e CSRF',async()=>{
             const csrf1=await page.evaluate(()=>csrfToken);
             await page.reload({waitUntil:'domcontentloaded'});
