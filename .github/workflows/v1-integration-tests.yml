@@ -42,6 +42,7 @@ jobs:
           node --check tests/admin-http.integration.test.js
           node --check tests/admin-browser.e2e.cjs
           node --check tests/lote2-integration.e2e.cjs
+          node --check tests/lote3-frontend-browser.e2e.cjs
 
       - name: Executar testes existentes (HTTP real e SQLite descartável)
         run: npm test
@@ -60,6 +61,10 @@ jobs:
       # Obrigatório em push para V1 e PR destinado a V1. Preservar os testes anteriores.
       - name: Aceite Lote 2 - API SQLite Chromium imagens e notificações
         run: node --test tests/lote2-integration.e2e.cjs
+
+      # SOMENTE COMPOSIÇÃO TEMPORÁRIA DO LOTE 3; não alterar workflow em V1.
+      - name: Revalidar Frontend Lote 3 em Chromium - PWA imagens e cache
+        run: node --test tests/lote3-frontend-browser.e2e.cjs
 
       - name: Verificar ausência de banco temporário no workspace
         if: always()
