@@ -26,8 +26,8 @@ class OpsError(Exception):
 
 def absolute(raw, kind):
     p = Path(raw)
-    if not p.is_absolute():
-        raise OpsError(f'{kind} deve ser um caminho absoluto')
+    if not p.is_absolute() or '..' in p.parts:
+        raise OpsError(f'{kind} deve ser um caminho absoluto sem segmentos ..')
     if str(p) in ('/', '/tmp', '/var', '/home', '/srv', '/opt'):
         raise OpsError(f'{kind} não pode ser um diretório raiz/genérico')
     return p
