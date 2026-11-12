@@ -57,6 +57,26 @@ function sqlite(dbPath, sql, params = [], method = 'run') {
         });
     });
 }
+// Inicialização explícita de um banco fictício pelos testes: o aplicativo NÃO
+// pode fazer isso quando MURAL_DB_PATH aponta a um arquivo externo.
+async function provisionarBancoDeTeste(dbPath) {
+    await new Promise((resolve, reject) => {
+        const db = new sqlite3.Database(dbPath, sqlite3.OPEN_READWRITE | sqlite3.OPEN_CREATE, err => {
+            if (err) return reject(err);
+            let falha;
+            db.serialize(() => {
+                db.run('PRAGMA foreign_keys = ON', e => { if (e) falha = e; });
+                db.run('CREATE TABLE Turmas (id INTEGER PRIMARY KEY AUTOINCREMENT, nome_turma TEXT NOT NULL UNIQUE, codigo_acesso TEXT UNIQUE)', e => { if (e) falha = e; });
+                db.run('CREATE TABLE Publicacoes (id INTEGER PRIMARY KEY AUTOINCREMENT, titulo TEXT NOT NULL, descricao TEXT, data TEXT NOT NULL, tipo TEXT NOT NULL, imagem_url TEXT, turma_id INTEGER, FOREIGN KEY (turma_id) REFERENCES Turmas(id) ON DELETE CASCADE)', e => { if (e) falha = e; });
+                db.close(e => {
+                    if (falha || e) reject(falha || e);
+                    else resolve();
+                });
+            });
+        });
+    });
+}
+
 async function freePort() {
     const listener = net.createServer();
     await new Promise((resolve, reject) => {
@@ -142,7 +162,7 @@ test('Lote 3 Backend: caminho do SQLite e persistência sem migração automáti
         await t.test('MURAL_DB_PATH externo existente conserva IDs, tokens e imagem em reinício HTTP', async () => {
             const f = fixture(temp, 'externo');
             // Provisionamento explícito e descartável, não migração implícita.
-            fs.writeFileSync(f.dbPath, '');
+            await provisionarBancoDeTeste(f.dbPath);
             let server;
             let imageUrl;
             const originalToken = 'a1b2c3';
@@ -237,13 +257,52 @@ test('Lote 3 Backend: caminho do SQLite e persistência sem migração automáti
             assert.ok(!fs.existsSync(path.join(f.appDir, 'banco-secreto.db')));
         });
 
+        await t.test('arquivo externo zero bytes é recusado sem criar tabela ou alterar bytes', async () => {
+            const f = fixture(temp, 'zero-byte');
+            fs.writeFileSync(f.dbPath, '');
+            const r = startAndClose(f.appDir, envWith(f.dbPath));
+            assert.notEqual(r.status, 0);
+            assert.match(r.stderr, /banco SQLite vazio ou incompleto/);
+            assert.equal(fs.statSync(f.dbPath).size, 0);
+            assert.ok(!fs.existsSync(path.join(f.appDir, 'banco.db')));
+        });
+
+        await t.test('arquivo não SQLite e SQLite truncado falham sem inicialização implícita', async () => {
+            const f = fixture(temp, 'corrompido');
+            fs.writeFileSync(f.dbPath, 'texto aleatório que não é SQLite'.repeat(6));
+            const invalid = startAndClose(f.appDir, envWith(f.dbPath));
+            assert.notEqual(invalid.status, 0);
+            assert.match(invalid.stderr, /não é um banco SQLite válido/);
+            await provisionarBancoDeTeste(path.join(f.dataDir, 'valido.db'));
+            const truncado = path.join(f.dataDir, 'valido.db');
+            fs.truncateSync(truncado, 120);
+            const corrupted = startAndClose(f.appDir, envWith(truncado));
+            assert.notEqual(corrupted.status, 0);
+            assert.match(corrupted.stderr, /integridade|banco externo inválido/);
+        });
+
+        await t.test('banco com esquema incompatível é recusado e permanece intacto', async () => {
+            const f = fixture(temp, 'esquema-incompativel');
+            await provisionarBancoDeTeste(f.dbPath);
+            await sqlite(f.dbPath, 'DROP TABLE Publicacoes');
+            const before = fs.statSync(f.dbPath).size;
+            const r = startAndClose(f.appDir, envWith(f.dbPath));
+            assert.notEqual(r.status, 0);
+            assert.match(r.stderr, /esquema Publicacoes|relacionamento de turma|banco externo inválido/);
+            const tables = await sqlite(f.dbPath,
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='Publicacoes'", [], 'all');
+            assert.equal(tables.length, 0, 'O aplicativo não recria a tabela ausente');
+            assert.equal(fs.statSync(f.dbPath).size, before);
+        });
+
+
         await t.test('verifica permissões sem criar arquivos inesperados', async () => {
             if (typeof process.getuid === 'function' && process.getuid() === 0) {
                 t.diagnostic('Teste de permissões não avaliado como root');
                 return;
             }
             const f = fixture(temp, 'permissoes');
-            fs.writeFileSync(f.dbPath, '');
+            await provisionarBancoDeTeste(f.dbPath);
             fs.chmodSync(f.dataDir, 0o500);
             try {
                 const r = startAndClose(f.appDir, envWith(f.dbPath));
