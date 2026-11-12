@@ -93,8 +93,14 @@ function createLimiter(now) {
         if (local.count >= perOriginMax)
             return { blocked: true, wait: Math.max(1, Math.ceil((local.until - time) / 1000)) };
         // Limitação global temporária, evitando lockout global de 15 minutos.
-        if (global.count >= globalMax)
-            return { blocked: true, wait: Math.max(1, Math.min(30, Math.ceil((global.until - time) / 1000))) };
+        if (global.blockedUntil && time < global.blockedUntil)
+            return { blocked: true, wait: Math.max(1, Math.ceil((global.blockedUntil - time) / 1000)) };
+        if (global.count >= globalMax) {
+            // Pausa GLOBAL curta; não reter bloqueio de todos os usuários por 15 min.
+            global.blockedUntil = time + 30000;
+            global.count = 0;
+            return { blocked: true, wait: 30 };
+        }
         return { blocked: false, fail() { local.count++; global.count++; }, success() {
             buckets.delete(localKey);
         } };
@@ -129,7 +135,10 @@ function createAuth(db, options = {}) {
         && bootstrapUntil > startedAt && bootstrapUntil <= startedAt + WINDOW_MS;
 
     async function assertSchema() {
-        // Ausência de tabela é FALHA FECHADA; não executar DDL no startup.
+        // Ausência de tabela/versão é FALHA FECHADA; não executar DDL no startup.
+        const version = await io.get('PRAGMA user_version');
+        if (!version || version.user_version !== 101)
+            throw new Error('Versão da migração auth ausente/incompatível. Execute o migrador OFFLINE.');
         const rows = await io.all("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('AdminCredencial','AdminSessoes')");
         if (rows.length !== 2) throw new Error('Esquema auth ausente. Execute o migrador OFFLINE antes de iniciar.');
         for (const [table, expected] of Object.entries({
@@ -168,8 +177,9 @@ function createAuth(db, options = {}) {
         if (!safeEqual(row.csrf_digest, sha256(Buffer.from(csrfHex, 'ascii')))) return null;
         // Compare-and-update impede reativação por um login com sessão revogada.
         const updated = await io.run('UPDATE AdminSessoes SET ultimo_uso_em=? ' +
-            'WHERE sid_digest=? AND revogado_em IS NULL AND geracao_sessao=?',
-            [time, dig, row.atual]);
+            'WHERE sid_digest=? AND revogado_em IS NULL AND geracao_sessao=? ' +
+            'AND EXISTS (SELECT 1 FROM AdminCredencial WHERE id=1 AND geracao_sessao=?)',
+            [time, dig, row.atual, row.atual]);
         if (updated.changes !== 1) return null;
         return { sidDigest: dig, csrfHex, generation: row.atual };
     }
