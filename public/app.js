@@ -61,10 +61,11 @@ function criarCartaoPublicacao(pub, geral) {
         imagem.style.height = 'auto';
         imagem.style.maxWidth = '100%';
         imagem.style.maxHeight = 'min(56vh, 26rem)';
-        imagem.addEventListener('error', () => {
+        imagem.onerror = () => {
             // Uma URL inexistente não deixa ícone de imagem quebrada no mural.
+            imagem.onerror = null;
             imagem.remove();
-        }, { once: true });
+        };
         artigo.appendChild(imagem);
     }
 
