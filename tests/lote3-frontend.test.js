@@ -179,12 +179,11 @@ test('imagem conserva proporção e limite de altura; erro remove imagem quebrad
         const image = card.children[0];
         assert.equal(image.tagName, 'img');
         assert.equal(image.loading, 'lazy');
-        assert.equal(image.style.width, 'auto');
-        assert.equal(image.style.height, 'auto');
-        assert.equal(image.style.maxWidth, '100%');
-        assert.match(image.style.maxHeight, /vh/);
-        assert.match(image.className, /object-contain/);
-        assert.doesNotMatch(image.className, /object-cover/);
+        assert.equal(image.className, 'imagem-mural');
+        assert.match(html, /\.imagem-mural\s*\{/);
+        assert.match(html, /max-height:\s*min\(56vh,\s*26rem\)/);
+        assert.match(html, /object-fit:\s*contain/);
+        assert.doesNotMatch(html, /\.imagem-mural\s*\{[^}]*object-fit:\s*cover/);
         assert.equal(typeof image.onerror, 'function');
         image.onerror();
         assert.equal(image.removed, true);
