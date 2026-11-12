@@ -221,7 +221,8 @@ test('Sessão administrativa: Chromium real, Express e SQLite fictícios', {time
             await page.getByTitle('Cadastrar nova turma').click();
             await $('#nova-turma-nome').fill('Turma Nova');
             await page.getByRole('button',{name:'Cadastrar',exact:true}).click();
-            await page.locator('#turma_id option',{hasText:'Turma Nova'}).waitFor();
+            await page.waitForFunction(() => Array.from(document.querySelectorAll('#turma_id option'))
+                .some(option => option.textContent === 'Turma Nova'));
             await page.getByTitle('Cadastrar nova turma').click();
             await $('#nova-turma-nome').fill('Turma Nova');
             await page.getByRole('button',{name:'Cadastrar',exact:true}).click();
