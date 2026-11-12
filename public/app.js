@@ -53,7 +53,18 @@ function criarCartaoPublicacao(pub, geral) {
         imagem.src = imagemUrl;
         imagem.alt = pub.titulo ? 'Imagem: ' + String(pub.titulo) : 'Imagem da publicação';
         imagem.loading = 'lazy';
-        imagem.className = 'w-full max-h-64 object-cover';
+        imagem.decoding = 'async';
+        // Mantém proporção e a fotografia inteira, sem altura fixa/corte por cover.
+        // A própria imagem determina a altura do cartão até o limite responsivo.
+        imagem.className = 'block mx-auto object-contain';
+        imagem.style.width = 'auto';
+        imagem.style.height = 'auto';
+        imagem.style.maxWidth = '100%';
+        imagem.style.maxHeight = 'min(56vh, 26rem)';
+        imagem.addEventListener('error', () => {
+            // Uma URL inexistente não deixa ícone de imagem quebrada no mural.
+            imagem.remove();
+        }, { once: true });
         artigo.appendChild(imagem);
     }
 
