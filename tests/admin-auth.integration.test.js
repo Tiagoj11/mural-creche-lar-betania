@@ -223,6 +223,23 @@ test('auth: migração e contrato HTTP reais em SQLite temporário', async t => 
         assert.equal(s2.status, 200);
         assert.notEqual(s1.data.csrf_token, s2.data.csrf_token);
         assert.equal((await api(h, '/api/admin/auth/session', { cookie:c1 })).status, 200);
+        const idleLogin = await api(h, '/api/admin/auth/login', {
+            method:'POST', origin:h.origin, json:{ senha:initialPass }
+        });
+        assert.equal(idleLogin.status, 200);
+        await h.sql('UPDATE AdminSessoes SET ultimo_uso_em=? WHERE sid_digest=?',
+            [Date.now() - 31 * 60 * 1000,
+                require('node:crypto').createHash('sha256').update(
+                    Buffer.from(idleLogin.cookie.split('=')[1], 'hex')).digest()], 'run');
+        error(await api(h, '/api/admin/auth/session', {cookie:idleLogin.cookie}), 401);
+        const absoluteLogin = await api(h, '/api/admin/auth/login', {
+            method:'POST', origin:h.origin, json:{ senha:initialPass }
+        });
+        assert.equal(absoluteLogin.status, 200);
+        await h.sql('UPDATE AdminSessoes SET expira_absoluto_em=? WHERE sid_digest=?',
+            [Date.now() - 1, require('node:crypto').createHash('sha256').update(
+                Buffer.from(absoluteLogin.cookie.split('=')[1], 'hex')).digest()], 'run');
+        error(await api(h, '/api/admin/auth/session', {cookie:absoluteLogin.cookie}),401);
         const oldWrong=await api(h, '/api/admin/auth/change-password', { method:'POST',
             cookie:c1, csrf:s1.data.csrf_token, origin:h.origin,
             json:{ senha_atual:'senha-errada', nova_senha:changedPass } });
