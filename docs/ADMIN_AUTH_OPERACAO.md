@@ -165,9 +165,13 @@ checkout Ubuntu Node22: `npm ci --no-audit --no-fund`, `npm test` (inclui
 `tests/lote3-frontend-browser.e2e.cjs`, testes Backend de HTTP/auth e
 E2E Auth Chromium de login/sessão.
 
-O novo gate exige arquivos `tests/*auth*.test.js` (exceto
-`tests/infra-*`) e `tests/*auth*.e2e.cjs`. Quando Backend/Frontend
-criarem seus PRs, **informar nomes de teste e harmonizar convenções**.
+O gate HTTP exige arquivos `tests/*auth*.test.js` (exceto
+`tests/infra-*`). O gate Chromium aceita `tests/*auth*.e2e.cjs` como
+suíte separada **ou** a suíte ampliada `tests/admin-browser.e2e.cjs`
+produzida pelo Frontend, contendo bootstrap, login, CSRF e múltiplas sessões:
+nesse segundo caso, ela **já é executada** no passo Chromium obrigatório
+anterior, não é ignorada. Essas convenções foram alinhadas com os PRs
+Backend #20 e Frontend #21; Code Review deve conferir todas as assertivas.
 O gate é deliberadamente **vermelho** no PR DevOps isolado se essas suítes
 ainda faltarem; não reportar CI verde como autenticação validada.
 Não renomear ou pular testes só para atingir green. O CI combinado dos três
