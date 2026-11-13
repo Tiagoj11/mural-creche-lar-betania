@@ -26,6 +26,15 @@ function respostaJson(res, status, objeto) {
 function servidorDescartavel() {
     return http.createServer((req, res) => {
         const url = new URL(req.url, 'http://127.0.0.1');
+        // O E2E Lote 3 usa HTTP sintético. Para validar a nova tela de login,
+        // simular apenas o estado "configurado, sem sessão"; nunca criar
+        // credenciais ou autenticar o visitante neste teste público.
+        if (req.method === 'GET' && url.pathname === '/api/admin/auth/session') {
+            return respostaJson(res, 401, { erro: 'Sessão não autenticada.' });
+        }
+        if (req.method === 'GET' && url.pathname === '/api/admin/auth/status') {
+            return respostaJson(res, 200, { configurado: true });
+        }
         if (url.pathname.startsWith('/api/publicacoes/token/')) {
             quantidadeDeConsultas++;
             if (url.pathname !== '/api/publicacoes/token/valid123') {
@@ -183,8 +192,23 @@ test('Lote 3: Chromium PWA localhost e quatro proporções sem cache sensível',
             await page.goto(origin + '/?token=invalido', { waitUntil: 'domcontentloaded' });
             await page.locator('#tab-apoie').click();
             assert.match(await page.locator('#sec-apoie').innerText(), /Dados para doação/);
-            await page.goto(origin + '/admin.html', { waitUntil: 'domcontentloaded' });
-            assert.equal(await page.locator('#senha_admin').count(), 1);
+            const adminResponse = await page.goto(origin + '/admin.html', {
+                waitUntil: 'domcontentloaded'
+            });
+            assert.equal(adminResponse.status(), 200);
+            await page.locator('#auth-login').waitFor({ state: 'visible' });
+            assert.equal(await page.locator('#auth-shell').isVisible(), true);
+            assert.equal(await page.locator('#form-login').isVisible(), true);
+            assert.equal(await page.locator('#login-senha').count(), 1);
+            assert.equal(await page.locator('#login-senha').getAttribute('type'), 'password');
+            assert.equal(await page.locator('#login-senha').getAttribute('autocomplete'),
+                'current-password');
+            assert.equal(await page.locator('#form-login input[type="password"]').count(), 1,
+                'Login deve solicitar somente uma senha.');
+            assert.equal(await page.locator('#senha_admin').count(), 0,
+                'Campo legado de senha por operação deve estar ausente.');
+            assert.equal(await page.locator('#admin-panel').isHidden(), true,
+                'Sem sessão, dados e operações administrativas devem permanecer ocultos.');
             await context.close();
         } finally {
             if (browser) await browser.close();
