@@ -192,13 +192,9 @@ test('Lote 3: Chromium PWA localhost e quatro proporções sem cache sensível',
             await page.goto(origin + '/?token=invalido', { waitUntil: 'domcontentloaded' });
             await page.locator('#tab-apoie').click();
             const apoio = await page.locator('#sec-apoie').innerText();
-            assert.match(apoio, /Apoie o nosso projeto/);
-            assert.doesNotMatch(apoio, /12\.345\.678\/0001-90|QR Code Aqui|Festa Junina Solidária/);
-            if (await page.locator('#pix-chave').count() > 0) {
-                assert.match(apoio, /Associação Assistencial Lar Betânia/);
-                assert.match(apoio, /83\.526\.640\/0001-67/);
-                assert.equal(await page.locator('#btn-copiar-pix').isVisible(), true);
-            }
+            assert.match(apoio, /Associação Assistencial Lar Betânia/);
+            assert.match(apoio, /83\.526\.640\/0001-67/);
+            assert.equal(await page.locator('#btn-copiar-pix').isVisible(), true);
             const adminResponse = await page.goto(origin + '/admin.html', {
                 waitUntil: 'domcontentloaded'
             });
