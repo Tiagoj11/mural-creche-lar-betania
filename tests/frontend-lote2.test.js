@@ -272,6 +272,8 @@ test('token ausente ou inválido não consulta outras turmas e mantém Apoie dis
     assert.match(invalido.el['sec-geral'].children[0].children[0].textContent,
         /Mural indisponível/);
     assert.ok(indexHtml.includes('id="sec-apoie"'));
-    assert.match(indexHtml, /Dados para doação serão disponibilizados após confirmação do CEI/);
-    assert.doesNotMatch(indexHtml, /pix-key|QR Code Aqui|Festa Junina Solidária/);
+    assert.match(indexHtml, /Associação Assistencial Lar Betânia/);
+    assert.match(indexHtml, /83\.526\.640\/0001-67/);
+    assert.match(indexHtml, /id="btn-copiar-pix"/);
+    assert.doesNotMatch(indexHtml, /pix-key|QR Code Aqui|Festa Junina Solidária|12\.345\.678\/0001-90/);
 });
