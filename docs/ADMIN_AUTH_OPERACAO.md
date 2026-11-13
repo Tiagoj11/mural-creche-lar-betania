@@ -140,21 +140,102 @@ Roteiro para futuro ensaio autorizado:
    falha de schema deve **bloquear o serviço**, não voltar a
    `Authorization: ADMIN_SECRET_KEY`. Retirar caminho legado na release nova.
 
-### Recuperação offline e restauração antiga
 
-Uma restauração de snapshot anterior **pode reintroduzir sessões ativas e
-hash de senha antigo**. O backup/restore por si só não revoga sessões.
-Antes de reabrir a rede, operador identificado, em manutenção, deverá executar
-a **ferramenta offline do Backend** que revoga todas as sessões restauradas,
-rotaciona a credencial e incrementa sua geração transacionalmente.
-Não executar SQL ad hoc nem reabrir bootstrap público como reset.
-Sem essa ferramenta entregue e ensaiada, **restauração não está aprovada
-para uso operacional**. Testar que cookies anteriores retornam 401.
+### REC-001 — recuperação offline após restauração SQLite (runbook)
 
-Rollback deve tratar **revisão de código e schema/banco compatíveis**,
-preservar origem e snapshots, nunca apagar ou sobrescrever dados reais.
-Documentar quem autoriza parada, restore e rotação; armazenar logs de ação
-mínimos sem dados de acesso.
+> Operação futura exclusivamente sob autorização operacional específica.
+> Não executar este roteiro sobre banco/VM/credencial reais nesta entrega.
+> **--quiesced é uma confirmação do operador; NÃO comprova automaticamente
+> que os escritores SQLite pararam.** Mesmo que não haja lock SQLite no
+> momento, um processo ocioso pode retomar uma escrita depois da inspeção.
+
+**1. Autorização, inventário e parada.** Registrar responsável, janela e
+versões de código/schema, locais externos de SQLite, WAL/SHM e uploads,
+backups existentes e responsáveis por todos os escritores. Isolar o acesso
+administrativo no proxy. O operador autorizado deverá parar o serviço
+(systemctl stop mural-creche somente em operação futura aprovada), todas
+as instâncias Node, containers, timers, cron, migradores e jobs capazes de
+escrever no mesmo banco ou uploads. Verificar estado inactive, PIDs e
+descritores em SQLite e arquivos -wal/-shm por ferramentas do sistema
+(lsof/fuser) e confirmar que nenhum escritor ocioso poderá retomar.
+Se não puder provar a parada da totalidade dos escritores, NÃO prosseguir.
+O lock EXCLUSIVE do script bloqueia transações concorrentes, mas NÃO
+substitui essa verificação humana de processo/infraestrutura.
+
+**2. Backup e verificação com serviço parado.** Somente após essa checagem:
+python3 scripts/ops/mural_data.py backup --db <DB_ABSOLUTO> --uploads
+<UPLOADS_ABSOLUTO> --output <SNAPSHOT_NOVO> --quiesced
+Depois:
+python3 scripts/ops/mural_data.py verify --snapshot <SNAPSHOT_NOVO>
+Conferir PRAGMA integrity_check, foreign_key_check, manifesto SHA-256,
+quantidades/IDs, URLs e códigos de turma por comparações protegidas (sem
+imprimir segredo). Guardar snapshot imutável SQLite+imagens e backup
+off-host criptografado, com acesso e retenção definidos pelo operador.
+Backups contêm credencial, sessões antigas e códigos de acesso.
+
+**3. Restaurar SEM sobrescrever originais.** Em diretórios totalmente
+novos e vazios, verificar primeiro em dry-run:
+python3 scripts/ops/mural_data.py restore --snapshot <SNAPSHOT>
+--db <NOVO_DB> --uploads <NOVOS_UPLOADS>
+Repetir com --quiesced --apply somente sob parada realmente confirmada.
+A ferramenta recusa destino já existente, corrupção e symlinks. Validar
+mesmos IDs de Turmas/Publicacoes, códigos, URLs, imagens/hash e schema
+de autenticação user_version=101; nunca apontar serviço público para
+snapshot restaurado antes da etapa seguinte.
+
+**4. Recuperar em modo OFFLINE, serviço ainda parado.** A CLI Backend
+entregue no PR #20 é scripts/recover-admin-auth.js e não é rota HTTP.
+Inspecionar geração da credencial:
+node scripts/recover-admin-auth.js --db <NOVO_DB> --quiesced --inspect
+Registrar somente o inteiro N exibido, não hash/salt, tokens ou senha.
+Executar em TTY interativo com senha oculta:
+node scripts/recover-admin-auth.js --db <NOVO_DB> --quiesced --expected-generation N
+A senha nova (12–128 caracteres) deve ser inserida pelo operador com
+entrada sem eco, nunca em argv, shell history, URL, logs ou Drive. A opção
+--password-stdin só deve ser usada com canal seguro; nos testes CI é
+empregada exclusivamente com credenciais sintéticas e pipe efêmero.
+A CLI valida caminho absoluto externo, DB íntegro e schema, compara
+a geração esperada, obtém lock BEGIN EXCLUSIVE, grava novo hash/salt
+scrypt, aumenta geracao_sessao e marca TODAS as sessões antigas como
+revogadas na mesma transação. Qualquer falha deve resultar em ROLLBACK,
+sem senha ou sessão parcialmente atualizada. A geração antiga bloqueia
+reexecução concorrente. Nunca usar SQL ad hoc nem bootstrap público
+para recuperação.
+
+**5. Verificar ANTES de reabrir rede.** Conferir integridade e FK de SQLite,
+geração incrementada, revogado_em preenchido para todas as sessões
+restauradas, token de turma/IDs/URLs/imagens idênticos e sem divulgação.
+Em homologação isolada, iniciar Express usando apenas DB e imagens
+restaurados, comprovar HTTP 401 para TODOS os cookies antigos, login
+com senha anterior 401 e nova senha válido, sessão nova com GET /session
+HTTP 200 e sessão nova preservada após restart real de processo. A
+autorização do teste NÃO permite ligar VM/Oracle ou publicar sistema.
+
+**6. Falha, rollback e recuperação de incidente.** Lock escritor,
+geração divergente, schema inválido, snapshot corrupto ou injeção de
+falha antes do COMMIT devem impedir a recuperação e preservar estado.
+Manter serviço parado e snapshot/origem intactos; inspecionar causas e
+solicitar nova autorização, sem reabrir rede. Rollback deve conservar
+o PAR código+esquema compatível e usar destino isolado sem sobrescrita.
+Um restore antigo pode reintroduzir sessão e hash válidos: antes de
+qualquer retorno de rede é obrigatória nova rotação/revogação offline.
+
+**7. Cobertura objetiva e riscos remanescentes.**
+- tests/infra-auth-recovery.test.js: Express de fixture parado com saída
+  confirmada, backup/verify, restore dry-run/aplicado, lock de escritor,
+  falha injetada/rollback integral, rejeição de repetição, CLI offline,
+  HTTP 401 em cookies antigos, nova credencial e sessão após reinício,
+  preservação de IDs, códigos, publicações, URLs e imagem fictícios.
+- tests/admin-recovery.integration.test.js (Backend PR #20): cenários
+  adicionais de recovery concorrente, mudança de senha HTTP com CRUD e
+  rate limit NAT/relógio controlado. Os resultados deverão ser extraídos
+  de uma execução real dos HEADs combinados, nunca presumidos.
+- Não testados na VM real: todas as instâncias/escritores/timers, Oracle,
+  DNS, TLS/cookie Secure público, snapshots reais, monitoramento e
+  restauração de dados CEI. Rate limit continua com estado por processo
+  e pode reiniciar após reboot; não demonstrada robustez multi-instância
+  em carga adversarial. Sessão pós-restart é comprovada somente no
+  servidor descartável. CI verde não substitui auditoria Code Review.
 
 ## 5. CI obrigatório, testes e dependências entre PRs
 
