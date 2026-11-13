@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const net = require('node:net');
-const { spawn } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 const sqlite3 = require('sqlite3');
 
 const root = path.resolve(__dirname, '..');
@@ -18,6 +18,8 @@ let processServer;
 let sqlite;
 let baseUrl;
 let output = '';
+let cookie;
+let csrf;
 
 function sql(sqlText, params = [], operation = 'run') {
     return new Promise((resolve, reject) => {
@@ -40,7 +42,13 @@ function freePort() {
 async function request(url, { method = 'GET', auth, fields, image, json } = {}) {
     const headers = {};
     let body;
-    if (auth !== undefined) headers.Authorization = auth;
+    if (auth !== undefined) {
+        if (auth === secret) {
+            headers.Cookie = cookie;
+            headers['X-CSRF-Token'] = csrf;
+        } else headers.Cookie = 'mural_admin_sid=invalid';
+    }
+    if (method !== 'GET' && method !== 'HEAD') headers.Origin = baseUrl;
     if (fields) {
         body = new FormData();
         for (const [k, v] of Object.entries(fields)) body.set(k, String(v));
@@ -68,16 +76,36 @@ function expectError(response, status) {
 async function boot() {
     fs.mkdirSync(path.join(appDir, 'public', 'uploads'), { recursive: true });
     fs.mkdirSync(uploadDir, { recursive: true });
-    for (const filename of ['server.js', 'database.js'])
+    for (const filename of ['server.js', 'database.js', 'admin-auth.js'])
         fs.copyFileSync(path.join(root, filename), path.join(appDir, filename));
+    fs.mkdirSync(path.join(appDir, 'scripts'), { recursive: true });
+    fs.copyFileSync(path.join(root, 'scripts', 'migrate-admin-auth.js'),
+        path.join(appDir, 'scripts', 'migrate-admin-auth.js'));
     fs.symlinkSync(path.join(root, 'node_modules'), path.join(appDir, 'node_modules'), 'dir');
     assert.ok(!uploadDir.startsWith(appDir + path.sep));
     assert.ok(!fs.existsSync(path.join(root, 'banco.db')));
     const port = await freePort();
     baseUrl = 'http://127.0.0.1:' + port;
+    const dbPath = path.join(tmp, 'mural.db');
+    const setup = await new Promise((resolve, reject) => {
+        const db = new sqlite3.Database(dbPath, err => err ? reject(err) : resolve(db));
+    });
+    const init = statement => new Promise((resolve, reject) =>
+        setup.run(statement, err => err ? reject(err) : resolve()));
+    await init('CREATE TABLE Turmas (id INTEGER PRIMARY KEY AUTOINCREMENT, nome_turma TEXT NOT NULL UNIQUE, codigo_acesso TEXT UNIQUE)');
+    await init('CREATE TABLE Publicacoes (id INTEGER PRIMARY KEY AUTOINCREMENT, titulo TEXT NOT NULL, descricao TEXT, data TEXT NOT NULL, tipo TEXT NOT NULL, imagem_url TEXT, turma_id INTEGER, FOREIGN KEY(turma_id) REFERENCES Turmas(id) ON DELETE CASCADE)');
+    await new Promise((resolve, reject) => setup.close(err => err ? reject(err) : resolve()));
+    const migrate = spawnSync(process.execPath, ['scripts/migrate-admin-auth.js', '--db', dbPath], {
+        cwd: appDir, encoding:'utf8', timeout:10000
+    });
+    assert.equal(migrate.status, 0, migrate.stderr);
     processServer = spawn(process.execPath, ['server.js'], {
         cwd: appDir,
-        env: { ...process.env, PORT: String(port), ADMIN_SECRET_KEY: secret, MURAL_UPLOAD_DIR: uploadDir },
+        env: { ...process.env, PORT: String(port), MURAL_DB_PATH: dbPath,
+            ADMIN_PUBLIC_ORIGIN: baseUrl, ADMIN_BOOTSTRAP_ENABLED: 'true',
+            ADMIN_BOOTSTRAP_UNTIL: String(Date.now() + 600000),
+            ADMIN_BOOTSTRAP_TOKEN: 'bootstrap-ficticio-' + 'b'.repeat(48),
+            MURAL_UPLOAD_DIR: uploadDir },
         stdio: ['ignore', 'pipe', 'pipe']
     });
     processServer.stdout.on('data', chunk => { output += chunk.toString(); });
@@ -86,14 +114,25 @@ async function boot() {
     for (let attempt = 0; attempt < 100; attempt++) {
         if (processServer.exitCode !== null) throw new Error('Servidor terminou: ' + output);
         try {
-            const response = await request('/api/turmas', { auth: secret });
+            const response = await request('/api/admin/auth/status');
             if (response.status === 200) { ready = true; break; }
         } catch { /* porta ainda não disponível */ }
         await new Promise(resolve => setTimeout(resolve, 100));
     }
     assert.ok(ready, 'Servidor não iniciou: ' + output);
-    const dbPath = path.join(appDir, 'banco.db');
     assert.ok(fs.existsSync(dbPath));
+    assert.ok(!fs.existsSync(path.join(appDir, 'banco.db')));
+    const boot = await request('/api/admin/auth/bootstrap', {
+        method:'POST', json:{ token_inicial:'bootstrap-ficticio-' + 'b'.repeat(48), nova_senha:secret }
+    });
+    assert.equal(boot.status, 201, JSON.stringify(boot.body));
+    const login = await fetch(baseUrl + '/api/admin/auth/login', {
+        method:'POST', headers:{ Origin:baseUrl, 'Content-Type':'application/json' },
+        body:JSON.stringify({senha:secret})
+    });
+    assert.equal(login.status, 200);
+    cookie = login.headers.get('set-cookie').split(';')[0];
+    csrf = (await request('/api/admin/auth/session', {auth:secret})).body.csrf_token;
     sqlite = await new Promise((resolve, reject) => {
         const db = new sqlite3.Database(dbPath, err => err ? reject(err) : resolve(db));
     });
@@ -156,7 +195,7 @@ test('Backend Lote 2: contrato HTTP/SQLite real, uploads e legados', async t => 
             assert.equal(beta.body.publicacoes.find(p => p.id === legacy.body.id).turma_id, 2);
         });
 
-        await t.test('POST/PUT rejeitam destino/turma inválidos; erro JSON; senha exigida', async () => {
+        await t.test('POST/PUT rejeitam destino/turma inválidos; erro JSON; sessão exigida', async () => {
             for (const fields of [
                 {}, { destino: 'turma' }, { destino: 'turma', turma_id: 9999 },
                 { turma_id: 9999 }, { destino: 'qualquer', turma_id: 1 },

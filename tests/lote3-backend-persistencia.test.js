@@ -11,6 +11,7 @@ const sqlite3 = require('sqlite3');
 
 const root = path.resolve(__dirname, '..');
 const secret = 'credencial-ficticia-lote3';
+const credentialsByBase = new Map();
 
 function fixture(temp, name) {
     const dir = path.join(temp, name);
@@ -20,9 +21,12 @@ function fixture(temp, name) {
     fs.mkdirSync(appDir, { recursive: true });
     fs.mkdirSync(dataDir, { recursive: true });
     fs.mkdirSync(uploadDir, { recursive: true });
-    for (const filename of ['database.js', 'server.js']) {
+    for (const filename of ['database.js', 'server.js', 'admin-auth.js']) {
         fs.copyFileSync(path.join(root, filename), path.join(appDir, filename));
     }
+    fs.mkdirSync(path.join(appDir, 'scripts'), { recursive: true });
+    fs.copyFileSync(path.join(root, 'scripts', 'migrate-admin-auth.js'),
+        path.join(appDir, 'scripts', 'migrate-admin-auth.js'));
     fs.symlinkSync(path.join(root, 'node_modules'), path.join(appDir, 'node_modules'), 'dir');
     return { dir, appDir, dataDir, uploadDir, dbPath: path.join(dataDir, 'mural.db') };
 }
@@ -88,13 +92,19 @@ async function freePort() {
     return port;
 }
 async function launchServer({ appDir, dbPath, uploadDir }) {
+    const migration = spawnSync(process.execPath, ['scripts/migrate-admin-auth.js', '--db', dbPath],
+        { cwd:appDir, encoding:'utf8', timeout:10000 });
+    assert.equal(migration.status, 0, migration.stderr);
     const port = await freePort();
     const base = 'http://127.0.0.1:' + port;
     const child = spawn(process.execPath, ['server.js'], {
         cwd: appDir,
         env: envWith(dbPath, {
             MURAL_UPLOAD_DIR: uploadDir,
-            ADMIN_SECRET_KEY: secret,
+            ADMIN_PUBLIC_ORIGIN: base,
+            ADMIN_BOOTSTRAP_ENABLED: 'true',
+            ADMIN_BOOTSTRAP_TOKEN: 'bootstrap-ficticio-' + 'c'.repeat(48),
+            ADMIN_BOOTSTRAP_UNTIL: String(Date.now() + 600000),
             PORT: String(port)
         }),
         stdio: ['ignore', 'pipe', 'pipe']
@@ -107,14 +117,34 @@ async function launchServer({ appDir, dbPath, uploadDir }) {
         for (let attempt = 0; attempt < 100; attempt++) {
             if (child.exitCode !== null) throw new Error('Servidor encerrou: ' + output);
             try {
-                const r = await fetch(base + '/api/turmas', {
-                    headers: { Authorization: secret }, signal: AbortSignal.timeout(1500)
+                const r = await fetch(base + '/api/admin/auth/status', {
+                    signal: AbortSignal.timeout(1500)
                 });
                 if (r.status === 200) { started = true; break; }
             } catch { /* Ainda iniciando */ }
             await new Promise(resolve => setTimeout(resolve, 75));
         }
         assert.ok(started, 'Express/SQLite não iniciaram: ' + output);
+        const status = await (await fetch(base + '/api/admin/auth/status')).json();
+        if (!status.configurado) {
+            const boot = await fetch(base + '/api/admin/auth/bootstrap', {
+                method:'POST', headers:{ Origin:base, 'Content-Type':'application/json' },
+                body:JSON.stringify({ token_inicial:'bootstrap-ficticio-' + 'c'.repeat(48),
+                    nova_senha:secret })
+            });
+            assert.equal(boot.status, 201, await boot.text());
+        }
+        const login = await fetch(base + '/api/admin/auth/login', {
+            method:'POST', headers:{ Origin:base, 'Content-Type':'application/json' },
+            body:JSON.stringify({senha:secret})
+        });
+        assert.equal(login.status, 200);
+        const cookie = login.headers.get('set-cookie').split(';')[0];
+        const session = await fetch(base + '/api/admin/auth/session', {
+            headers:{Cookie:cookie}
+        });
+        assert.equal(session.status, 200);
+        credentialsByBase.set(base, { cookie, csrf:(await session.json()).csrf_token });
     } catch (err) {
         child.kill('SIGTERM');
         throw err;
@@ -131,8 +161,17 @@ async function shutdown(child) {
     if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
 }
 async function json(base, url, options = {}) {
+    const headers = { ...(options.headers || {}) };
+    if (headers.Authorization !== undefined) {
+        delete headers.Authorization;
+        const auth = credentialsByBase.get(base);
+        assert.ok(auth, 'Sessão de teste deve existir');
+        headers.Cookie = auth.cookie;
+        headers['X-CSRF-Token'] = auth.csrf;
+    }
+    if (!['GET','HEAD'].includes(options.method || 'GET')) headers.Origin = base;
     const r = await fetch(base + url, {
-        ...options, signal: AbortSignal.timeout(4000)
+        ...options, headers, signal: AbortSignal.timeout(4000)
     });
     assert.match(r.headers.get('content-type') || '', /^application\/json/);
     return { status: r.status, body: await r.json() };

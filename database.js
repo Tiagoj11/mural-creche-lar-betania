@@ -89,6 +89,10 @@ const db = new sqlite3.Database(dbPath, modo, (err) => {
     if (!caminhoConfigurado) console.log('Conectado ao SQLite local legado (banco.db).');
 });
 
+// Caminho validado para transações auth em conexão SQLite dedicada.
+// Nunca usado como fallback para criar banco externo.
+db.muralDbPath = dbPath;
+
 db.serialize(() => {
     db.run(`PRAGMA foreign_keys = ON;`);
 
