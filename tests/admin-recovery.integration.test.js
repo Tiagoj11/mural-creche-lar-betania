@@ -338,3 +338,66 @@ test('REC-001: limiter NAT e tempo de recuperação são finitos em relógio con
     now+=31000;
     assert.equal(limiter.check('login',another,5,100).blocked,false);
 });
+
+
+test('REC-001: troca de senha isola transação de CRUD e falha sem sucesso parcial',async t=>{
+    const f=await createFixture(t);
+    const app=await startApp(f);
+    try {
+        const first=await bootstrapAndLogin(app);
+        const second=await login(app,oldPassword);
+        assert.equal(first.status,200);
+        assert.equal(second.status,200);
+        const s1=await http(app,'/api/admin/auth/session',{cookie:first.cookie});
+        const s2=await http(app,'/api/admin/auth/session',{cookie:second.cookie});
+        assert.equal(s1.status,200);
+        assert.equal(s2.status,200);
+        // Falha artificial do segundo UPDATE da transação. Somente fixture.
+        await query(f.dbFile,
+            "CREATE TRIGGER abort_revoke BEFORE UPDATE OF revogado_em ON AdminSessoes BEGIN SELECT RAISE(ABORT,'falha sintetica'); END",
+            [],'run');
+        const [failed,crud]=await Promise.all([
+            http(app,'/api/admin/auth/change-password',{method:'POST',
+                cookie:first.cookie,csrf:s1.body.csrf_token,
+                body:{senha_atual:oldPassword,nova_senha:firstConcurrentPassword}}),
+            http(app,'/api/turmas',{method:'POST',
+                cookie:second.cookie,csrf:s2.body.csrf_token,
+                body:{nome_turma:'Turma concorrente fictícia'}})
+        ]);
+        assert.equal(failed.status,500,JSON.stringify(failed.body));
+        assert.equal(crud.status,201,'CRUD independente não pode ser incluído no rollback auth');
+        assert.equal((await http(app,'/api/admin/auth/session',
+            {cookie:first.cookie})).status,200);
+        assert.equal((await http(app,'/api/admin/auth/session',
+            {cookie:second.cookie})).status,200);
+        assert.equal((await login(app,oldPassword)).status,200);
+        assert.equal((await login(app,firstConcurrentPassword)).status,401);
+        const unchanged=await credentialState(f.dbFile);
+        assert.equal(unchanged.gen,0);
+        assert.ok(unchanged.sessions.every(x=>x.revoked===null));
+        assert.ok((await domain(f.dbFile)).turmas.some(x=>x.nome_turma==='Turma concorrente fictícia'));
+        await query(f.dbFile,'DROP TRIGGER abort_revoke',[],'run');
+
+        // Duas requisições de troca concorrentes: somente uma pode completar.
+        const results=await Promise.all([
+            http(app,'/api/admin/auth/change-password',{method:'POST',
+                cookie:first.cookie,csrf:s1.body.csrf_token,
+                body:{senha_atual:oldPassword,nova_senha:firstConcurrentPassword}}),
+            http(app,'/api/admin/auth/change-password',{method:'POST',
+                cookie:second.cookie,csrf:s2.body.csrf_token,
+                body:{senha_atual:oldPassword,nova_senha:secondConcurrentPassword}})
+        ]);
+        assert.equal(results.filter(x=>x.status===204).length,1,
+            'Somente um commit com troca simultânea');
+        assert.ok(results.every(x=>[204,401,403].includes(x.status)),
+            JSON.stringify(results.map(x=>x.status)));
+        assert.equal((await credentialState(f.dbFile)).gen,1);
+        assert.equal((await http(app,'/api/admin/auth/session',{cookie:first.cookie})).status,401);
+        assert.equal((await http(app,'/api/admin/auth/session',{cookie:second.cookie})).status,401);
+        const winner=results[0].status===204?firstConcurrentPassword:secondConcurrentPassword;
+        const loser=results[0].status===204?secondConcurrentPassword:firstConcurrentPassword;
+        assert.equal((await login(app,winner)).status,200);
+        assert.equal((await login(app,loser)).status,401);
+        assert.equal((await login(app,oldPassword)).status,401);
+    }finally { await stopApp(app); }
+});
