@@ -44,6 +44,7 @@ jobs:
           node --check tests/lote2-integration.e2e.cjs
           node --check tests/lote3-frontend-browser.e2e.cjs
           node --check tests/infra-auth-ops.test.js
+          node --check tests/infra-auth-recovery.test.js
 
       - name: Executar testes existentes (HTTP real e SQLite descartável)
         run: npm test
@@ -108,6 +109,20 @@ jobs:
             echo "::error::E2E auth Chromium não presente (nem em suíte separada nem no admin-browser)."
             exit 1
           fi
+
+      # REC-001: prova explícita em fixtures. npm test também cobre estes casos;
+      # o passo isolado facilita auditoria de recuperação/rollback nos logs.
+      - name: Gate REC-001 - recuperação SQLite offline e revogação HTTP 401
+        shell: bash
+        run: |
+          for arquivo in scripts/recover-admin-auth.js tests/admin-recovery.integration.test.js tests/infra-auth-recovery.test.js; do
+            if [ ! -f "$arquivo" ]; then
+              echo "::error::Arquivo obrigatório de recuperação offline ausente: $arquivo"
+              exit 1
+            fi
+          done
+          node --check scripts/recover-admin-auth.js
+          node --test tests/admin-recovery.integration.test.js tests/infra-auth-recovery.test.js
 
       # Não registrar valores de credenciais nem publicar artefatos da sessão.
 
