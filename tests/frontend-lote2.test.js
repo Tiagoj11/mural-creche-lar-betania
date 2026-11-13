@@ -507,6 +507,13 @@ test('token ausente ou inválido não consulta outras turmas e mantém Apoie dis
     assert.match(invalido.el['sec-geral'].children[0].children[0].textContent,
         /Mural indisponível/);
     assert.ok(indexHtml.includes('id="sec-apoie"'));
-    assert.match(indexHtml, /Dados para doação serão disponibilizados após confirmação do CEI/);
-    assert.doesNotMatch(indexHtml, /pix-key|QR Code Aqui|Festa Junina Solidária/);
+    assert.match(indexHtml, /Apoie o nosso projeto/);
+    assert.doesNotMatch(indexHtml, /pix-key|QR Code Aqui|Festa Junina Solidária|12\.345\.678\/0001-90/);
+    // PR #21 é isolado da interface PIX. Na composição com #28, o PIX é obrigatório
+    // e deve ser exatamente o oficial, nunca um dado de demonstração.
+    if (indexHtml.includes('id="pix-chave"')) {
+        assert.match(indexHtml, /Associação Assistencial Lar Betânia/);
+        assert.match(indexHtml, /83\.526\.640\/0001-67/);
+        assert.match(indexHtml, /id="btn-copiar-pix"/);
+    }
 });
