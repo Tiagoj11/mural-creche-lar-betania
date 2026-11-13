@@ -4,6 +4,7 @@
 // CSRF canônico: HMAC-SHA256(key=SID aleatório de 32 bytes, message='mural-csrf-v1')
 // codificado em HEX MINÚSCULO (64 caracteres), somente após autenticar a sessão.
 const crypto = require('node:crypto');
+const sqlite3 = require('sqlite3');
 const { promisify } = require('node:util');
 const scrypt = promisify(crypto.scrypt);
 const SID_COOKIE = 'mural_admin_sid';
@@ -110,6 +111,33 @@ function createLimiter(now) {
 function createAuth(db, options = {}) {
     const io = dbApi(db);
     const now = options.now || Date.now;
+    // A conexão global do Express é compartilhada com o CRUD.
+    // Transações multi-await NÃO podem usar essa conexão: as requisições
+    // concorrentes enfileirariam SQL dentro da transação de outra requisição.
+    async function runDedicatedTransaction(work) {
+        if (!db.muralDbPath) throw new Error('Caminho SQLite indisponível para transação.');
+        const connection = await new Promise((resolve, reject) => {
+            const c = new sqlite3.Database(db.muralDbPath, sqlite3.OPEN_READWRITE,
+                err => err ? reject(err) : resolve(c));
+        });
+        const isolated = dbApi(connection);
+        let active = false;
+        try {
+            await isolated.run('PRAGMA busy_timeout = 2500');
+            await isolated.run('PRAGMA foreign_keys = ON');
+            await isolated.run('BEGIN IMMEDIATE');
+            active = true;
+            const result = await work(isolated);
+            await isolated.run('COMMIT');
+            active = false;
+            return result;
+        } catch (err) {
+            if (active) await isolated.run('ROLLBACK').catch(() => {});
+            throw err;
+        } finally {
+            await new Promise(resolve => connection.close(() => resolve()));
+        }
+    }
     const limiter = createLimiter(now);
     const publicOrigin = process.env.ADMIN_PUBLIC_ORIGIN || 'http://localhost:' + (process.env.PORT || 3000);
     let expectedOrigin;
@@ -291,25 +319,27 @@ function createAuth(db, options = {}) {
             if (!row || !(await checkPassword(old, row)))
                 return reject(res, 403, 'Senha atual incorreta.');
             const { hash, salt } = await newHash(updated);
-            await io.run('BEGIN IMMEDIATE');
-            try {
-                const change = await io.run('UPDATE AdminCredencial SET senha_hash=?, salt=?, parametros_versao=?, ' +
-                    'atualizado_em=?, geracao_sessao=geracao_sessao+1 WHERE id=1 AND geracao_sessao=?',
-                    [hash, salt, KDF_VERSION, now(), row.geracao_sessao]);
-                if (change.changes !== 1) {
-                    await io.run('ROLLBACK');
-                    return reject(res, 403, 'Requisição não autorizada. Atualize o painel.');
-                }
-                await io.run('UPDATE AdminSessoes SET revogado_em=? WHERE revogado_em IS NULL', [now()]);
-                await io.run('COMMIT');
-            } catch (e) {
-                await io.run('ROLLBACK').catch(() => {});
-                throw e;
-            }
+            const changed = await runDedicatedTransaction(async tx => {
+                // Revalidar dentro do lock a geração e o SID: impede falso
+                // sucesso se outra troca/logout/recovery revogou a sessão.
+                const result = await tx.run(
+                    'UPDATE AdminCredencial SET senha_hash=?, salt=?, parametros_versao=?, ' +
+                    'atualizado_em=?, geracao_sessao=geracao_sessao+1 WHERE id=1 ' +
+                    'AND geracao_sessao=? AND EXISTS (' +
+                    'SELECT 1 FROM AdminSessoes WHERE sid_digest=? ' +
+                    'AND geracao_sessao=? AND revogado_em IS NULL)',
+                    [hash, salt, KDF_VERSION, now(), row.geracao_sessao,
+                        req.adminSession.sidDigest, row.geracao_sessao]);
+                if (result.changes !== 1) return false;
+                await tx.run('UPDATE AdminSessoes SET revogado_em=? WHERE revogado_em IS NULL',
+                    [now()]);
+                return true;
+            });
+            if (!changed) return reject(res, 403, 'Requisição não autorizada. Atualize o painel.');
             res.clearCookie(SID_COOKIE, cookieOptions);
             res.status(204).end();
         }));
     }
     return { register, assertSchema, authenticated, mutate, noStore, originOk };
 }
-module.exports = { createAuth };
+module.exports = { createAuth, newHash, passwordPolicy, KDF_VERSION, createLimiter };
