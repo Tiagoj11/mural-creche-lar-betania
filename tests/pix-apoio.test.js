@@ -121,7 +121,7 @@ test('PIX-CA-04: permissão negada mostra erro e seleciona chave para cópia man
     assert.equal(app.el['pix-notificacao'].dataset.estado, 'erro');
     assert.equal(app.el['pix-notificacao'].attributes.role, 'alert');
     assert.equal(app.el['pix-notificacao'].attributes['aria-live'], 'assertive');
-    assert.match(app.el['pix-aviso-mensagem'].textContent, /copiar manualmente/);
+    assert.match(app.el['pix-aviso-mensagem'].textContent, /copie manualmente/);
     assert.doesNotMatch(app.el['pix-aviso-mensagem'].textContent, /copiada com sucesso/);
     assert.equal(app.el['pix-ajuda-manual'].hidden, false);
     assert.equal(app.el['pix-chave'].focused, true);
