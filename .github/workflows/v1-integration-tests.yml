@@ -45,6 +45,8 @@ jobs:
           node --check tests/lote3-frontend-browser.e2e.cjs
           node --check tests/infra-auth-ops.test.js
           node --check tests/infra-auth-recovery.test.js
+          node --check public/pix.js
+          node --check tests/pix-public-real.e2e.cjs
 
       - name: Executar testes existentes (HTTP real e SQLite descartável)
         run: npm test
@@ -67,6 +69,10 @@ jobs:
       # A suíte Lote 3 existe na V1, mas não estava incluída no workflow permanente.
       - name: Aceite Frontend Lote 3 - PWA, imagens, cache e token
         run: node --test tests/lote3-frontend-browser.e2e.cjs
+
+      # Gate PIX da página REAL servido por Express do checkout integrado.
+      - name: Gate PIX - pagina publica real Express SQLite Chromium e Clipboard
+        run: node --test tests/pix-public-real.e2e.cjs
 
       # Os PRs independentes não contêm ainda os dois módulos da funcionalidade.
       # O gate deve FALHAR explicitamente, nunca ficar verde com auth ignorada.
