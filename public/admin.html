@@ -2,7 +2,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Painel Administrativo - CEI Lar Betânia</title>
+    <title>Painel Administrativo - Creche Lar Betânia</title>
+    <link rel="icon" type="image/png" href="/assets/pwa-icon-192.png?v=3">
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         [hidden] { display: none !important; }
@@ -16,7 +17,7 @@
 <body class="bg-gray-100 min-h-screen text-gray-800">
     <header class="bg-[#b83b43] text-white p-4 shadow-md">
         <div class="max-w-4xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-            <h1 class="font-bold text-xl">Painel Administrativo - CEI Lar Betânia</h1>
+            <h1 class="font-bold text-xl">Painel Administrativo - Creche Lar Betânia</h1>
             <div class="flex flex-wrap items-center justify-end gap-2">
                 <a href="index.html" class="text-sm bg-white/20 hover:bg-white/30 px-3 py-1.5 rounded-lg transition">Ver Mural</a>
                 <div id="acoes-sessao" hidden class="flex flex-wrap gap-2">
@@ -40,7 +41,7 @@
             <p id="auth-estado" class="text-sm text-gray-600" role="status" aria-live="polite">Verificando sessão administrativa...</p>
             <div id="auth-login" hidden>
                 <h2 class="font-bold text-xl mb-2">Entrar no painel</h2>
-                <p class="text-sm text-gray-600 mb-4">Acesso exclusivo da administração do CEI.</p>
+                <p class="text-sm text-gray-600 mb-4">Acesso exclusivo da administração da Creche.</p>
                 <form id="form-login" class="space-y-4">
                     <div>
                         <label for="login-senha" class="block text-sm font-semibold mb-1">Senha</label>

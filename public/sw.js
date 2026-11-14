@@ -2,7 +2,7 @@
 
 // O PWA não mantém HTML, APIs, tokens, publicações nem administração offline.
 // Somente a identidade pública, os ícones e o manifest podem ser armazenados.
-const CACHE_NAME = 'mural-public-static-v1';
+const CACHE_NAME = 'mural-public-static-v3';
 const CACHE_PREFIX = 'mural-public-static-';
 const PUBLIC_ASSETS = Object.freeze([
     '/assets/Logo.jpg',

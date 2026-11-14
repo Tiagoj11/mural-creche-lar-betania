@@ -27,11 +27,15 @@ test('manifest instalável sem token e ícones PNG reais de 192/512', () => {
     assert.equal(manifest.display, 'standalone');
     assert.equal(manifest.lang, 'pt-BR');
     assert.equal(manifest.theme_color, '#b83b43');
+    assert.equal(fs.existsSync(path.join(root, 'assets', 'pwa-icon-192.png')), true);
+    assert.equal(fs.existsSync(path.join(root, 'assets', 'pwa-icon-512.png')), true);
     assert.deepEqual(pngSize('pwa-icon-192.png'), [192, 192]);
     assert.deepEqual(pngSize('pwa-icon-512.png'), [512, 512]);
     assert.deepEqual(manifest.icons.map(i => i.sizes), ['192x192', '512x512']);
-    assert.ok(manifest.icons.every(i => i.type === 'image/png' &&
-        i.src.startsWith('/assets/pwa-icon-')));
+    assert.deepEqual(manifest.icons.map(i => i.src), [
+        '/assets/pwa-icon-192.png', '/assets/pwa-icon-512.png'
+    ]);
+    assert.ok(manifest.icons.every(i => i.type === 'image/png' && i.purpose === 'any'));
     assert.doesNotMatch(JSON.stringify(manifest), /[?&](token|turma)=|\/api\/|\/admin\.html/);
 });
 
@@ -47,7 +51,8 @@ function swHarness() {
     };
     const caches = {
         async open(name) { calls.openName = name; return cache; },
-        async keys() { return ['mural-public-static-antiga', 'outro-site-cache', 'mural-public-static-v1']; },
+        async keys() { return ['mural-public-static-antiga', 'outro-site-cache',
+            'mural-public-static-v1', 'mural-public-static-v2', 'mural-public-static-v3']; },
         async delete(name) { calls.deleted.push(name); return true; }
     };
     const self = {
@@ -90,13 +95,16 @@ test('service worker pré-armazena somente logo, ícones e manifest', async () =
         '/assets/pwa-icon-512.png', '/manifest.webmanifest'
     ]);
     assert.equal(calls.skipped, 1);
+    assert.equal(calls.openName, 'mural-public-static-v3');
     assert.ok(calls.added.every(v => !/[?]|\/api|\/uploads|\.html|token|turma/.test(v)));
 });
 
 test('ativação remove só caches antigos do próprio PWA', async () => {
     const { calls, dispatch } = swHarness();
     await dispatch('activate');
-    assert.deepEqual(Array.from(calls.deleted), ['mural-public-static-antiga']);
+    assert.deepEqual(Array.from(calls.deleted), [
+        'mural-public-static-antiga', 'mural-public-static-v1', 'mural-public-static-v2'
+    ]);
     assert.equal(calls.claimed, 1);
 });
 
@@ -127,6 +135,24 @@ test('SW mantém network-only navegação, API, uploads, admin, tokens e queries
     assert.equal(allowed.cached, true);
     assert.equal(allowed.path, '/assets/pwa-icon-192.png');
     assert.equal(calls.matches.length, 1);
+});
+
+test('manifest, HTML, painel e SW apontam apenas para os ícones PNG reais', () => {
+    const adminHtml = fs.readFileSync(path.join(root, 'admin.html'), 'utf8');
+    assert.deepEqual(manifest.icons.map(icon => icon.src),
+        ['/assets/pwa-icon-192.png', '/assets/pwa-icon-512.png']);
+    for (const icon of manifest.icons) {
+        const diskFile = path.resolve(root, '.' + icon.src);
+        assert.ok(diskFile.startsWith(root + path.sep));
+        assert.equal(fs.existsSync(diskFile), true, 'Ícone ausente: ' + icon.src);
+        assert.deepEqual(pngSize(path.basename(icon.src)), icon.sizes.split('x').map(Number));
+        assert.ok(swSource.includes("'" + icon.src + "'"), 'SW não pré-carrega ' + icon.src);
+    }
+    assert.match(html, /rel="icon"[^>]*href="\/assets\/pwa-icon-192\.png"/);
+    assert.match(html, /rel="apple-touch-icon" href="\/assets\/pwa-icon-192\.png"/);
+    assert.match(adminHtml, /rel="icon"[^>]*href="\/assets\/pwa-icon-192\.png\?v=3"/);
+    for (const value of [html, adminHtml, swSource, JSON.stringify(manifest)])
+        assert.doesNotMatch(value, /\/assets\/pwa-logo-(192|512)\.png/);
 });
 
 test('index registra SW em contexto seguro e mantém shell pública sem token', () => {

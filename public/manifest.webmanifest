@@ -1,7 +1,7 @@
 {
-  "name": "Mural do CEI Lar Betânia",
+  "name": "Mural da Creche Lar Betânia",
   "short_name": "Mural Betânia",
-  "description": "Avisos, cardápio e eventos do CEI Lar Betânia.",
+  "description": "Avisos, cardápio e eventos da Creche Lar Betânia.",
   "lang": "pt-BR",
   "start_url": "/",
   "scope": "/",
@@ -13,13 +13,13 @@
       "src": "/assets/pwa-icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
     },
     {
       "src": "/assets/pwa-icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
     }
   ]
 }
