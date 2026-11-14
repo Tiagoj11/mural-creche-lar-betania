@@ -96,6 +96,13 @@ test('Lote 3: Chromium PWA localhost e quatro proporções sem cache sensível',
             const context = await browser.newContext({ serviceWorkers: 'allow' });
             const page = await context.newPage();
             await page.route('https://cdn.tailwindcss.com/**', route => route.abort());
+            // Simula uma instalação antiga ANTES do registro do novo SW.
+            await page.goto(origin + '/admin.html', { waitUntil: 'domcontentloaded' });
+            await page.evaluate(async () => {
+                await caches.open('mural-public-static-v1');
+                await caches.open('mural-public-static-v2');
+                await caches.open('outro-aplicativo-cache');
+            });
             await page.goto(origin + '/?token=valid123', { waitUntil: 'load' });
             // O CSS de imagens não depende do CDN de Tailwind.
             await page.addStyleTag({ content: '.hidden{display:none!important}.max-w-md{max-width:28rem}' +
@@ -110,6 +117,36 @@ test('Lote 3: Chromium PWA localhost e quatro proporções sem cache sensível',
             assert.equal(manifest.start_url, '/');
             assert.equal(manifest.scope, '/');
             assert.equal(manifest.icons.length, 2);
+            assert.deepEqual(manifest.icons.map(icon => icon.src),
+                ['/assets/pwa-icon-192.png', '/assets/pwa-icon-512.png']);
+            assert.equal(await page.locator('link[rel="icon"]').getAttribute('href'),
+                '/assets/pwa-icon-192.png');
+            assert.equal(await page.locator('link[rel="apple-touch-icon"]').getAttribute('href'),
+                '/assets/pwa-icon-192.png');
+            for (const icon of manifest.icons) {
+                // page.request ignora o SW e consulta o HTTP real do servidor descartável.
+                const response = await page.request.get(origin + icon.src);
+                assert.equal(response.status(), 200, 'Arquivo físico disponível: ' + icon.src);
+                assert.match(response.headers()['content-type'], /^image\/png/);
+                const bytes = await response.body();
+                assert.deepEqual(Array.from(bytes.subarray(0, 8)), [137,80,78,71,13,10,26,10]);
+                assert.equal(bytes.subarray(12, 16).toString('ascii'), 'IHDR');
+                assert.deepEqual([bytes.readUInt32BE(16), bytes.readUInt32BE(20)],
+                    icon.sizes.split('x').map(Number));
+            }
+            await page.waitForFunction(async () => {
+                const keys = await caches.keys();
+                return keys.includes('mural-public-static-v3')
+                    && !keys.includes('mural-public-static-v1')
+                    && !keys.includes('mural-public-static-v2');
+            });
+            const assetsV3 = await page.evaluate(async () =>
+                (await (await caches.open('mural-public-static-v3')).keys())
+                    .map(request => new URL(request.url).pathname).sort());
+            assert.deepEqual(assetsV3, [
+                '/assets/Logo.jpg', '/assets/pwa-icon-192.png',
+                '/assets/pwa-icon-512.png', '/manifest.webmanifest'
+            ].sort());
 
             for (const [width, height] of [[320, 640], [375, 760], [430, 850], [1280, 900]]) {
                 await page.setViewportSize({ width, height });
@@ -182,6 +219,10 @@ test('Lote 3: Chromium PWA localhost e quatro proporções sem cache sensível',
                 return { names, urls };
             });
             assert.ok(cached.urls.includes('/assets/Logo.jpg'));
+            assert.ok(cached.names.includes('mural-public-static-v3'));
+            assert.ok(cached.names.includes('outro-aplicativo-cache'));
+            assert.ok(!cached.names.includes('mural-public-static-v1'));
+            assert.ok(!cached.names.includes('mural-public-static-v2'));
             assert.ok(!cached.urls.some(p => p.startsWith('/api/') || p.startsWith('/uploads/') ||
                 p === '/' || p === '/admin.html' || p.endsWith('.html')));
             const initial = quantidadeDeConsultas;
@@ -199,6 +240,9 @@ test('Lote 3: Chromium PWA localhost e quatro proporções sem cache sensível',
                 waitUntil: 'domcontentloaded'
             });
             assert.equal(adminResponse.status(), 200);
+            const adminFavicon = await page.locator('link[rel="icon"]').getAttribute('href');
+            assert.equal(new URL(adminFavicon, origin).pathname, '/assets/pwa-icon-192.png');
+            assert.equal((await page.request.get(new URL(adminFavicon, origin).toString())).status(), 200);
             await page.locator('#auth-login').waitFor({ state: 'visible' });
             assert.equal(await page.locator('#auth-shell').isVisible(), true);
             assert.equal(await page.locator('#form-login').isVisible(), true);
